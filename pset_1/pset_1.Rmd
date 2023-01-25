@@ -1,0 +1,185 @@
+---
+title: "Problem Set 1"
+subtitle: "Applied Methods"
+author: "Andie Creel"
+date: "2023-01-25"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(vroom)
+library(dplyr)
+# library(foreach)
+# library(doParallel)
+```
+
+## Question One
+Randomization. This analysis will use the Dehijia and Wahba sample from the Lalonde dataset of the NSW experiment. The dataset is lalonde_nsw.csv. The outcome variable is re78 (real earnings in 1978). The treatment indicator is treat. The remaining variables are potential covariates. Assume for the purposes of this problem set that treat is completely randomly assigned.
+
+### a. Calculate the average treatment effect of the policy $E(\tau_i)$ using a simple difference in means.
+
+Under random assignment, we know that $\hat{\tau} = \sum_i \frac{Y_{i,1}}{D_i} - \sum_i \frac{Y_{i,0}}{1-D_i}$.
+
+```{r, message=FALSE}
+# --------------------------------------------------------------
+# read in data 
+# --------------------------------------------------------------
+# myData <- vroom('https://raw.githubusercontent.com/paulgp/applied-methods-phd/main/homework/Homework1/lalonde_nsw.csv')
+# vroom_write(myData, file = "lalonde_nsw.csv")
+
+myData <- vroom('lalonde_nsw.csv')
+
+# --------------------------------------------------------------
+# calculating tau
+# --------------------------------------------------------------
+#calculating number of treated and control
+D1 <- sum(myData$treat)
+D0 <- sum(1-myData$treat)
+
+# sum of outcome for treated 
+Y1_df <- myData %>%
+  filter(treat == 1) %>%
+  select(re78)
+
+Y1 <- sum(Y1_df$re78) ; rm(Y1_df)
+
+# sum of outcome for control 
+Y0_df <- myData %>%
+  filter(treat == 0) %>%
+  select(re78)
+
+Y0 <- sum(Y0_df$re78) ; rm(Y0_df)
+
+#calculating tau hat
+t_hat <- Y1/D1 - Y0/D0
+
+```
+
+I find that $\hat{\tau}$ is `r round(t_hat, 2)`.
+
+### b. Calculate the average treatment effect on the treated of the policy $E(\tau_i | treat = 1)$. How does it compare to part a?
+
+Because treatment is randomly assigned (and we assume there are no violators to their treatment status), $E[Y_i(0) | D_i = 0] = E[Y_i(0) | D_i = 1]$. Therefore the average treatment on the treated with be the same as the average treatment effect and the answer does not differ from part a. 
+
+### c. Test the null of $\tau_i = 0$ for all i using a randomization test. *N.B.* Hold fixed the number of treated and control (e.g. assume the treatment count would be held fixed) and permute the labels randomly 1000 times – you do not need to fully do every permutation (there would be too many). Report the quantile that your estimate from the previous question falls.
+
+```{r}
+# ----------------------------------------------------------------------------
+# functions
+# ----------------------------------------------------------------------------
+
+#calculate the average treatement effect for a sample
+calc_ATE <- function(df){
+
+  #calculating number of treated and control
+  D1 <- sum(df$treat_new)
+  D0 <- sum(1-df$treat_new)
+  
+  # sum of outcome for treated 
+  Y1_df <- df %>%
+    filter(treat_new == 1) %>%
+    select(re78)
+  
+  Y1 <- sum(Y1_df$re78) ; rm(Y1_df)
+  
+  # sum of outcome for control 
+  Y0_df <- df %>%
+    filter(treat_new == 0) %>%
+    select(re78)
+  
+  Y0 <- sum(Y0_df$re78) ; rm(Y0_df)
+  
+  #calculating tau hat
+  t_hat <- Y1/D1 - Y0/D0
+  return(t_hat)
+}
+
+#get a sample ATE
+get_sample_ate <- function(){
+  # step one: randomize assignment of treatment and control
+  mySample <- myData %>%
+    mutate(treat_new = sample(treat, replace = FALSE))
+ 
+  #step two: calculate t_hat 
+  calc_ATE(mySample)
+}
+
+
+# ----------------------------------------------------------------------------
+# Create a distribution and find p value
+# ----------------------------------------------------------------------------
+
+#create a distribution
+myDist <- replicate(1000, get_sample_ate())
+
+#indicate if sample's tau is bigger than estimated tau
+myDist_df <- data.frame(sample_tau = myDist) %>%
+  mutate(perc = if_else(sample_tau>t_hat, 1,0))
+
+#calc p value
+pval <- sum(myDist_df$perc)/1000
+
+```
+I find that the p-value is `r pval`. 
+
+
+### d. Run a regression using robust standard errors (you may use canned software) of the outcome on the treatment dummy, and compare the p-values from this test to the previous answer.
+
+```{r}
+myReg <- lm(data = myData, formula = re78 ~ treat)
+summary(myReg)
+
+```
+I fid a p-value that is less than .01, as does the canned regression. We can also see that the average treatment effects are equivalent. 
+
+## Question Two 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r, eval=FALSE, include=FALSE}
+# ----------------------------------------------------------------------------
+# scratch 
+# ----------------------------------------------------------------------------
+
+
+
+get_sample_ate()
+
+# try to do this with apply instead 
+
+myDist <- data.frame(seq(1:1000))
+
+sapply(myDist, get_sample_ate)
+
+#initialization 
+myDistribution <- data.frame(t_hat = seq(1:1000)) %>%
+  mutate(t_hat = NA)
+
+for (i in 1:1000) {
+  
+  # step one: randomize assignment of treatment and control
+  mySample <- myData %>%
+    mutate(treat_new = sample(treat, replace = FALSE))
+ 
+   #step two: calculate t_hat and store
+  myDistribution$t_hat[i] <- getATE(mySample)
+  
+}
+
+
+
+
+```
+
