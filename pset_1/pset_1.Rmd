@@ -10,12 +10,13 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 library(vroom)
 library(dplyr)
-# library(foreach)
-# library(doParallel)
+
 ```
 
-## Question One
-Randomization. This analysis will use the Dehijia and Wahba sample from the Lalonde dataset of the NSW experiment. The dataset is lalonde_nsw.csv. The outcome variable is re78 (real earnings in 1978). The treatment indicator is treat. The remaining variables are potential covariates. Assume for the purposes of this problem set that treat is completely randomly assigned.
+\newcommand{\indep}{\perp \!\!\! \perp}
+
+## Question One: Randomization
+This analysis will use the Dehijia and Wahba sample from the Lalonde dataset of the NSW experiment. The dataset is lalonde_nsw.csv. The outcome variable is re78 (real earnings in 1978). The treatment indicator is treat. The remaining variables are potential covariates. Assume for the purposes of this problem set that treat is completely randomly assigned.
 
 ### a. Calculate the average treatment effect of the policy $E(\tau_i)$ using a simple difference in means.
 
@@ -131,9 +132,90 @@ myReg <- lm(data = myData, formula = re78 ~ treat)
 summary(myReg)
 
 ```
-I fid a p-value that is less than .01, as does the canned regression. We can also see that the average treatment effects are equivalent. 
+I find a p-value that is less than .01, as does the canned regression. We can also see that the average treatment effects are equivalent. 
 
-## Question Two 
+
+## Question Two: Propensity Scores
+This analysis will use the dataset from Problem 1 as well as the PSID dataset from Dehijia and Wahba, lalonde-psid.csv. These datasets have identical variables. The new dataset is a sample of observations from the Panel Survey of Income Dynamics that can be used as alternative control observations. Importantly, these observations were not in the initial randomization.
+
+### a. Using age, education, hispanic, black, married, nodegree, RE74 and RE75, construct a propensity score using the treated group in lalonde-nsw.csv and the control sample of lalonde-psid.csv. Use a logit regression model to do so (you may use a canned routine to run the regression). Report the average p-score for the treated and control samples, and plot the propensity score densities for the treatment and control groups.
+
+Step one: create new data set with treated from nsw and control for psid 
+
+Step two: calculate propensity scores using logit 
+
+$\pi(\mathbf{X_i}) = Pr(D_i = 1 | \mathbf{X_i})$
+
+Step three: Subset by treated and control, calculate average propensity score for two groups. If there was random assignment, you would expect these to be the same (?)
+
+
+```{r}
+# mySample <- vroom("https://raw.githubusercontent.com/paulgp/applied-methods-phd/main/homework/Homework1/lalonde_psid.csv")
+# vroom_write(mySample, "lalonde_psid.csv")
+
+# ----------------------------------------------------------------------------
+# read in data, make new data set
+# ----------------------------------------------------------------------------
+myData <- vroom("lalonde_nsw.csv") %>%
+  filter(treat == 1)
+
+
+mySample <- vroom("lalonde_psid.csv") %>%
+  filter(treat == 0)
+
+myData_2 <- bind_rows(myData, mySample) ; rm(myData, mySample)
+
+myData_2 <- myData_2 %>% 
+  select(treat, age, education, hispanic, black, married, nodegree, re74, re75)
+  
+
+# ----------------------------------------------------------------------------
+# calculate pscores 
+# ----------------------------------------------------------------------------
+
+#logit
+myLogit <- glm(treat ~ age + education + hispanic + black +married + nodegree + re74 + re75, data = myData_2, family = "binomial")
+
+# predict treatment given model (pscore)
+myData_2$p_score <- predict(myLogit, newdata = myData_2)
+
+# ----------------------------------------------------------------------------
+# avg pscore for treated and control 
+# ----------------------------------------------------------------------------
+
+# treated
+treat_df <- myData_2 %>%
+  filter(treat == 1)
+
+p_score_treat <- mean(treat_df$p_score) ; rm(treat_df)
+
+# control 
+control_df <- myData_2 %>%
+  filter(treat == 0)
+
+p_score_control<- mean(control_df$p_score) ; rm(control_df)
+
+
+
+```
+
+Something is wrong, I am gretting a pscore of 
+	
+	
+	
+
+
+Assumptions: 
+If we assume strong ignorability, $Y_i(0), Y_i(1) \indep D_i | \mathbf{X_i}$, then we know $(Y_i(0), Y_i(1) \indep D_i | \pi(\mathbf{X_i})$
+
+
+
+
+
+
+
+
+
 
 
 
@@ -177,8 +259,6 @@ for (i in 1:1000) {
   myDistribution$t_hat[i] <- getATE(mySample)
   
 }
-
-
 
 
 ```
