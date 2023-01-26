@@ -6,11 +6,19 @@ date: "2023-01-25"
 output: pdf_document
 ---
 
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(vroom)
 library(dplyr)
+library(sandwich)
+library(formatR)
 
+```
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+# Set so that long lines in R will be wrapped:
+knitr::opts_chunk$set(tidy.opts=list(width.cutoff=55), tidy=TRUE)
 ```
 
 \newcommand{\indep}{\perp \!\!\! \perp}
@@ -129,7 +137,17 @@ I find that the p-value is `r pval`.
 
 ```{r}
 myReg <- lm(data = myData, formula = re78 ~ treat)
-summary(myReg)
+
+#robust standard errors
+myRobustSE <- sqrt(diag(vcovHC(myReg)))
+
+#treatment effect
+effect <- summary(myReg)$coefficients[2,1]
+
+# p-value for null 0 avg treatment effect in reg.1, vs 2 sided alternative
+round(2*(1-pnorm(abs(effect/myRobustSE[2]))),4)
+
+
 
 ```
 I find a p-value that is less than .01, as does the canned regression. We can also see that the average treatment effects are equivalent. 
@@ -149,7 +167,7 @@ $\pi(\mathbf{X_i}) = Pr(D_i = 1 | \mathbf{X_i})$
 Step three: Subset by treated and control, calculate average propensity score for two groups. If there was random assignment, you would expect these to be the same (?)
 
 
-```{r}
+```{r, message=FALSE}
 # mySample <- vroom("https://raw.githubusercontent.com/paulgp/applied-methods-phd/main/homework/Homework1/lalonde_psid.csv")
 # vroom_write(mySample, "lalonde_psid.csv")
 
@@ -166,7 +184,7 @@ mySample <- vroom("lalonde_psid.csv") %>%
 myData_2 <- bind_rows(myData, mySample) ; rm(myData, mySample)
 
 myData_2 <- myData_2 %>% 
-  select(treat, age, education, hispanic, black, married, nodegree, re74, re75)
+  select(treat, age, education, hispanic, black, married, nodegree, re74, re75, re78)
   
 
 # ----------------------------------------------------------------------------
@@ -176,8 +194,12 @@ myData_2 <- myData_2 %>%
 #logit
 myLogit <- glm(treat ~ age + education + hispanic + black +married + nodegree + re74 + re75, data = myData_2, family = "binomial")
 
-# predict treatment given model (pscore)
-myData_2$p_score <- predict(myLogit, newdata = myData_2)
+# predict treatment given model (LOGIT RETURNS A LOG ODDS)
+myData_2$log_odds <- predict(myLogit, newdata = myData_2)
+
+# Transform to probability 
+myData_2$odds <- exp(myData_2$log_odds)
+myData_2$p_score <- myData_2$odds / (1+myData_2$odds)
 
 # ----------------------------------------------------------------------------
 # avg pscore for treated and control 
@@ -195,70 +217,55 @@ control_df <- myData_2 %>%
 
 p_score_control<- mean(control_df$p_score) ; rm(control_df)
 
+```
+
+I get an average p-score the treatment of `r round(p_score_treat,2)` and `r round(p_score_control, 2)` for the control. 
+	
+### b. Using your p-score estimates, calculate the IPW and SIPW estimate for control and treated mean of the outcome, and the average treatment effect. Contrast these estimates to the control mean of the outcome from the NSW sample, and the treatment effect from last week’s problem set.
+
+Assumptions: 
+If we assume strong ignorability, $Y_i(0), Y_i(1) \indep D_i | \mathbf{X_i}$, then we know $(Y_i(0), Y_i(1) \indep D_i | \pi(\mathbf{X_i})$. This allows us to solve a high dimensional problem with a scalar value. 
+
+
+**IPW**
+
+Horvitz-Thompson estimator (aka inverse probability estimator): 
+
+$E[\tau_i] = E[\frac{Y_i D_i}{\pi(X_i) } - \frac{Y_i (1 - D_i)}{1 - \pi(X_i)}]$
+
+<!-- $\hat{\tau_i} = \frac{1}{n} \sum_i \frac{Y_i D_i}{\pi_i} - \frac{Y_i (1 - D_i)}{1 - \pi_i} $ -->
+
+
+```{r}
+#outcome is re78
+
+tau_hat_HC <- 1/length(myData_2$re78) * sum(myData_2$re78 * myData_2$treat/myData_2$p_score - myData_2$re78*(1 - myData_2$treat)/ (1 - myData_2$p_score))
+
 
 
 ```
 
-Something is wrong, I am gretting a pscore of 
-	
-	
-	
+I estimate the IPW is `r round(tau_hat_HC, 2)`.
 
 
-Assumptions: 
-If we assume strong ignorability, $Y_i(0), Y_i(1) \indep D_i | \mathbf{X_i}$, then we know $(Y_i(0), Y_i(1) \indep D_i | \pi(\mathbf{X_i})$
+**SIPW**
+
+$ \hat{\tau_{SIPW}} = \frac{n^{-1} \sum_i \frac{Y_i D_i}{\hat\pi_i}}{ n^{-1} \sum_i \frac{D_i}{\hat \pi_i}}  -  \frac{n^{-1} \sum_i \frac{Y_i (1-D_i))}{(1-\hat\pi_i)}}{ n^{-1} \sum_i \frac{1-D_i}{1-\hat \pi_i}}$
 
 
+```{r}
+#t_hat_spiw = term_1/temp_2 - term_3/term_4
+
+term_1 <- 1/length(myData_2$re78) * sum(myData_2$re78 * myData_2$treat/myData_2$p_score)
+term_2 <- 1/length(myData_2$re78) * sum(myData_2$treat/myData_2$p_score)
 
 
+term_3 <-  1/length(myData_2$re78) * sum(myData_2$re78*(1 - myData_2$treat)/ (1 - myData_2$p_score))
+term_4 <- 1/length(myData_2$re78) * sum((1-myData_2$treat)/(1-myData_2$p_score))
+
+t_hat_spiw <- term_1/term_2 - term_3/term_4
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-```{r, eval=FALSE, include=FALSE}
-# ----------------------------------------------------------------------------
-# scratch 
-# ----------------------------------------------------------------------------
-
-
-
-get_sample_ate()
-
-# try to do this with apply instead 
-
-myDist <- data.frame(seq(1:1000))
-
-sapply(myDist, get_sample_ate)
-
-#initialization 
-myDistribution <- data.frame(t_hat = seq(1:1000)) %>%
-  mutate(t_hat = NA)
-
-for (i in 1:1000) {
-  
-  # step one: randomize assignment of treatment and control
-  mySample <- myData %>%
-    mutate(treat_new = sample(treat, replace = FALSE))
- 
-   #step two: calculate t_hat and store
-  myDistribution$t_hat[i] <- getATE(mySample)
-  
-}
 
 
 ```
