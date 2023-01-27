@@ -43,26 +43,30 @@ myData <- vroom('lalonde_nsw.csv')
 # calculating tau
 # --------------------------------------------------------------
 #calculating number of treated and control
-D1 <- sum(myData$treat)
-D0 <- sum(1-myData$treat)
+calcATE <- function(df){
+  D1 <- sum(df$treat)
+  D0 <- sum(1-df$treat)
+  
+  # sum of outcome for treated 
+  Y1_df <- df %>%
+    filter(treat == 1) %>%
+    select(re78)
+  
+  Y1 <- sum(Y1_df$re78) ; rm(Y1_df)
+  
+  # sum of outcome for control 
+  Y0_df <- df %>%
+    filter(treat == 0) %>%
+    select(re78)
+  
+  Y0 <- sum(Y0_df$re78) ; rm(Y0_df)
+  
+  #calculating tau hat
+  t_hat <- Y1/D1 - Y0/D0
+  return(t_hat)
+}
 
-# sum of outcome for treated 
-Y1_df <- myData %>%
-  filter(treat == 1) %>%
-  select(re78)
-
-Y1 <- sum(Y1_df$re78) ; rm(Y1_df)
-
-# sum of outcome for control 
-Y0_df <- myData %>%
-  filter(treat == 0) %>%
-  select(re78)
-
-Y0 <- sum(Y0_df$re78) ; rm(Y0_df)
-
-#calculating tau hat
-t_hat <- Y1/D1 - Y0/D0
-
+t_hat<-calcATE(myData)
 ```
 
 I find that $\hat{\tau}$ is `r round(t_hat, 2)`.
@@ -79,7 +83,7 @@ Because treatment is randomly assigned (and we assume there are no violators to 
 # ----------------------------------------------------------------------------
 
 #calculate the average treatement effect for a sample
-calc_ATE <- function(df){
+calc_ATE_samp <- function(df){
 
   #calculating number of treated and control
   D1 <- sum(df$treat_new)
@@ -111,7 +115,7 @@ get_sample_ate <- function(){
     mutate(treat_new = sample(treat, replace = FALSE))
  
   #step two: calculate t_hat 
-  calc_ATE(mySample)
+  calc_ATE_samp(mySample)
 }
 
 
@@ -231,9 +235,9 @@ If we assume strong ignorability, $Y_i(0), Y_i(1) \indep D_i | \mathbf{X_i}$, th
 
 Horvitz-Thompson estimator (aka inverse probability estimator): 
 
-$E[\tau_i] = E[\frac{Y_i D_i}{\pi(X_i) } - \frac{Y_i (1 - D_i)}{1 - \pi(X_i)}]$
+$$E[\tau_i] = E[\frac{Y_i D_i}{\pi(X_i) } - \frac{Y_i (1 - D_i)}{1 - \pi(X_i)}]$$
 
-<!-- $\hat{\tau_i} = \frac{1}{n} \sum_i \frac{Y_i D_i}{\pi_i} - \frac{Y_i (1 - D_i)}{1 - \pi_i} $ -->
+$$\hat{\tau_i} = \frac{1}{n} \sum_i \frac{Y_i D_i}{\pi_i} - \frac{Y_i (1 - D_i)}{1 - \pi_i} $$
 
 
 ```{r}
@@ -250,23 +254,125 @@ I estimate the IPW is `r round(tau_hat_HC, 2)`.
 
 **SIPW**
 
-$ \hat{\tau_{SIPW}} = \frac{n^{-1} \sum_i \frac{Y_i D_i}{\hat\pi_i}}{ n^{-1} \sum_i \frac{D_i}{\hat \pi_i}}  -  \frac{n^{-1} \sum_i \frac{Y_i (1-D_i))}{(1-\hat\pi_i)}}{ n^{-1} \sum_i \frac{1-D_i}{1-\hat \pi_i}}$
+$$ \hat{\tau_{SIPW}} = \frac{n^{-1} \sum_i \frac{Y_i D_i}{\hat\pi_i}}{ n^{-1} \sum_i \frac{D_i}{\hat \pi_i}}  -  \frac{n^{-1} \sum_i \frac{Y_i (1-D_i))}{(1-\hat\pi_i)}}{ n^{-1} \sum_i \frac{1-D_i}{1-\hat \pi_i}}$$
 
 
 ```{r}
 #t_hat_spiw = term_1/temp_2 - term_3/term_4
 
-term_1 <- 1/length(myData_2$re78) * sum(myData_2$re78 * myData_2$treat/myData_2$p_score)
+term_1 <- 1/length(myData_2$re78) * sum((myData_2$re78 * myData_2$treat)/myData_2$p_score)
 term_2 <- 1/length(myData_2$re78) * sum(myData_2$treat/myData_2$p_score)
 
 
-term_3 <-  1/length(myData_2$re78) * sum(myData_2$re78*(1 - myData_2$treat)/ (1 - myData_2$p_score))
+term_3 <-  1/length(myData_2$re78) * sum((myData_2$re78*(1 - myData_2$treat))/ (1 - myData_2$p_score))
 term_4 <- 1/length(myData_2$re78) * sum((1-myData_2$treat)/(1-myData_2$p_score))
 
-t_hat_spiw <- term_1/term_2 - term_3/term_4
+tau_hat_spiw <- term_1/term_2 - term_3/term_4 ; rm(term_1, term_2, term_3, term_4)
+
+
+```
+I estimate the SIPW is `r round(tau_hat_spiw, 2)`.
+
+
+### c. Compare the ATE in the previous question to the treatment effect estimated using a linear regression using the PSID and NSW treatment sample, with age, education, hispanic, black, married, nodegree, RE74 and RE75 as controls.
+
+```{r}
+myReg_1 <- lm(data = myData_2, formula = re78 ~ treat+ age + education + hispanic + black + married + nodegree + re74 +re75)
+summary(myReg_1)
+
+```
+
+I estimate an ATE of 751.95 when estimating using an OLS regression with controls. This is a very different treatment effect than the HC estimator and SIPW (which are very different from one another as well). 
+
+### d. Now revisit your estimates from part a and b, and following Crump et al. (2009), discard all units with estimated propensities outside the range of [0.1, 0.9]. Reestimate the IPW and SIPW estimator of the ATE from part b using this trimmed sample.
+
+```{r}
+#trim
+myData_3 <- myData_2 %>%
+  filter(p_score < .9) %>%
+  filter(p_score > .1)
+
+#HC 
+tau_hat_HC_trim <- 1/length(myData_3$re78) * sum(myData_3$re78 * myData_3$treat/myData_3$p_score - myData_3$re78*(1 - myData_3$treat)/ (1 - myData_3$p_score))
+
+#SPIW
+term_1 <- 1/length(myData_3$re78) * sum((myData_3$re78 * myData_3$treat)/myData_3$p_score)
+term_2 <- 1/length(myData_3$re78) * sum(myData_3$treat/myData_3$p_score)
+
+term_3 <-  1/length(myData_3$re78) * sum((myData_3$re78*(1 - myData_3$treat))/ (1 - myData_3$p_score))
+term_4 <- 1/length(myData_3$re78) * sum((1-myData_3$treat)/(1-myData_3$p_score))
+
+tau_hat_spiw_trim <- term_1/term_2 - term_3/term_4 ; rm(term_1, term_2, term_3, term_4)
+
+```
+
+I find that $\hat \tau_{HC_{trim}}$ is `r round(tau_hat_HC_trim,2)` and  $\hat \tau_{SPIW_{trim}}$ is `r round(tau_hat_spiw_trim,2)`. These are more similar to the treatment effect estimated by the regression. 
+
+### d. Finally, calculate the IPW and SIPW estimates for the ATE using this trimmed sample for Black and non-Black individuals. Compare this estimate to the ATE for Black and non-Black individuals using the full randomized sample.
+
+**IPW and SPIW for Black people**
+
+```{r}
+# Black 
+myData_black <- myData_3 %>%
+  filter(black == 1)
+
+#HC 
+tau_hat_HC_black <- 1/length(myData_black$re78) * sum(myData_black$re78 * myData_black$treat/myData_black$p_score - myData_black$re78*(1 - myData_black$treat)/ (1 - myData_black$p_score))
+
+#SPIW
+term_1 <- 1/length(myData_black$re78) * sum((myData_black$re78 * myData_black$treat)/myData_black$p_score)
+term_2 <- 1/length(myData_black$re78) * sum(myData_black$treat/myData_black$p_score)
+
+term_3 <-  1/length(myData_black$re78) * sum((myData_black$re78*(1 - myData_black$treat))/ (1 - myData_black$p_score))
+term_4 <- 1/length(myData_black$re78) * sum((1-myData_black$treat)/(1-myData_black$p_score))
+
+tau_hat_spiw_black <- term_1/term_2 - term_3/term_4 ; rm(term_1, term_2, term_3, term_4)
+
+
+
+```
+I find that $\hat \tau_{HC_{black-trim}}$ is `r round(tau_hat_HC_black,2)` and  $\hat \tau_{SPIW_{black-trim}}$ is `r round(tau_hat_spiw_black,2)`.
+
+
+**IPW and SPIW for non-Black people**
+```{r}
+# Black 
+myData_non <- myData_3 %>%
+  filter(black == 0)
+
+#HC 
+tau_hat_HC_non <- 1/length(myData_non$re78) * sum(myData_non$re78 * myData_non$treat/myData_non$p_score - myData_non$re78*(1 - myData_non$treat)/ (1 - myData_non$p_score))
+
+#SPIW
+term_1 <- 1/length(myData_non$re78) * sum((myData_non$re78 * myData_non$treat)/myData_non$p_score)
+term_2 <- 1/length(myData_non$re78) * sum(myData_non$treat/myData_non$p_score)
+
+term_3 <-  1/length(myData_non$re78) * sum((myData_non$re78*(1 - myData_non$treat))/ (1 - myData_non$p_score))
+term_4 <- 1/length(myData_non$re78) * sum((1-myData_non$treat)/(1-myData_non$p_score))
+
+tau_hat_spiw_non <- term_1/term_2 - term_3/term_4 ; rm(term_1, term_2, term_3, term_4)
+
+
+
+```
+I find that $\hat \tau_{HC_{non-trim}}$ is `r round(tau_hat_HC_non,2)` and  $\hat \tau_{SPIW_{non-trim}}$ is `r round(tau_hat_spiw_non,2)`.
+
+**ATE for Black and non-Black people in full sample**
+```{r}
+myBlack_full <- myData_2 %>%
+  filter(black == 1)
+
+myNon_full <- myData_2 %>%
+  filter(black == 0)
+
+ate_black <- calcATE(myBlack_full)
+ate_non <- calcATE(myNon_full)
 
 
 
 
 ```
 
+
+I DON'T THINK THIS IS RIGHT !!!!!! MY CALC ATE MAY BE WRONG 
