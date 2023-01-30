@@ -13,6 +13,7 @@ library(vroom)
 library(dplyr)
 library(sandwich)
 library(formatR)
+library(sm)
 
 ```
 
@@ -81,7 +82,7 @@ Because treatment is randomly assigned (and we assume there are no violators to 
 # ----------------------------------------------------------------------------
 # functions
 # ----------------------------------------------------------------------------
-
+set.seed(123)
 
 #get a sample ATE
 get_sample_ate <- function(){
@@ -124,12 +125,13 @@ myRobustSE <- sqrt(diag(vcovHC(myReg)))
 tau_reg <- summary(myReg)$coefficients[2,1]
 
 # p-value for null 0 avg treatment effect in reg.1, vs 2 sided alternative
-round(2*(1-pnorm(abs(tau_reg/myRobustSE[2]))),4)
+reg_p_val <- unname(round(2*(1-pnorm(abs(tau_reg/myRobustSE[2]))),4))
+
 
 
 
 ```
-I find a p-value that is less than .01, as does the canned regression. We can also see that the average treatment effects are equivalent. 
+I find a p-value in part c that is less than .01, as does the canned regression that finds a p-value of `r reg_p_val`. The average treatment effects are equivalent, as the regression finds the treatment effect to be `r tau_reg`.
 
 
 ## Question Two: Propensity Scores
@@ -188,13 +190,22 @@ myData_2$p_score <- myData_2$odds / (1+myData_2$odds)
 treat_df <- myData_2 %>%
   filter(treat == 1)
 
-p_score_treat <- mean(treat_df$p_score) ; rm(treat_df)
+p_score_treat <- mean(treat_df$p_score) 
 
 # control 
 control_df <- myData_2 %>%
   filter(treat == 0)
 
-p_score_control<- mean(control_df$p_score) ; rm(control_df)
+p_score_control<- mean(control_df$p_score) 
+
+# ----------------------------------------------------------------------------
+# plots
+# ----------------------------------------------------------------------------
+
+hist(control_df$p_score,main = "P-Score Distribution for Control",xlab = "p-score")
+
+
+hist(treat_df$p_score, main="P-Score Distribution for Treated", xlab = "p-score")
 
 ```
 
@@ -262,6 +273,20 @@ tau_hat_spiw <- getSPIW(myData_2)
 
 ```
 I estimate the SIPW is `r round(tau_hat_spiw, 2)`.
+
+
+**ATE**
+
+```{r}
+
+ate_b <- calc_ATE(myData_2) 
+
+```
+I estimate the ATE using a simple difference in means is `r round(ate_b,2)`.
+
+
+All of these estimates are extremely different from the treatment effect estimated in question one. 
+
 
 
 ### c. Compare the ATE in the previous question to the treatment effect estimated using a linear regression using the PSID and NSW treatment sample, with age, education, hispanic, black, married, nodegree, RE74 and RE75 as controls.
