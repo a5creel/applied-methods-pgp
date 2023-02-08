@@ -1,0 +1,201 @@
+---
+title: "Problem Set 2"
+author: "Andie Creel"
+date: "2023-02-06"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(vroom)
+library(dplyr)
+```
+For both analyses this week, you will be using data from Mian and Sufi’s 2014 Econometrica article, What Explains the 2007-2009 Drop in Employment?. The analyses will not match the exact numbers in the paper, but the full replication set is available if you are interested in exploring it.
+
+## Question One: Standard Errors
+For this problem, use the dataset networth_delta_elas.csv, where county_fips is the county FIPS code, statename is the state FIPS code, elasticity is the Saiz elasticity measure, total is the number of households in each county, and netwp_h is the change in net worth within a county from 2006 to 2009.
+
+### Write a function to esitmate the linear regression of networth change against a constant and the Saiz elasticiy. Report the coefficient on the elasticity.
+
+Let $netwp$ be $Y_i$ and $elasticity$ be $X_i$ where $i$ indexes the county.
+
+$$ Y_i = \beta_0 + \beta_1 X_i $$
+
+When finding $\hat \beta$ by minimizing the squared error, 
+$$\hat \beta= (X'X)^{-1} X'Y,$$
+Note that $X$ is a matrix and the first column is equal to 1 for the constant.
+
+```{r, message=FALSE}
+# --------------------------------------------------------------
+# read in data 
+# --------------------------------------------------------------
+# myData <- vroom('https://raw.githubusercontent.com/paulgp/applied-methods-phd/main/homework/Homework3/networth_delta_elas.csv')
+# vroom_write(myData, file = "networth_delta_elas.csv")
+
+myData <- vroom('networth_delta_elas.csv')
+
+# --------------------------------------------------------------
+# Function to estimate coefficients of OLS regressions
+# --------------------------------------------------------------
+myOLS <- function(Y, X){
+  beta <- solve(t(X)%*%X)%*%t(X)%*%Y
+  
+  return(beta)
+}
+
+# --------------------------------------------------------------
+# Estimating effect of elasticity on network change
+# --------------------------------------------------------------
+# getting matrices from data 
+myX <- cbind(1, myData$elasticity) #constant and elasticity
+myY <- myData$netwp_h
+
+myBeta <-myOLS(Y = myY, X = myX)
+
+
+# Checking
+#lm(data = myData, formula = netwp_h ~ elasticity)
+```
+
+I estimate $\beta_0$ is `r myBeta[1]` and $\beta_1$ is `r myBeta[2]`.
+
+### Next, estimate the homoskedastic SE, heteroskedasticity-robust SE, HC2, and HC3 standard errors for the elasticity estimate.
+
+I use the code found on page 80 and 101 of *Econometrics* by Bruce Hansen (2014). 
+
+```{r, message=FALSE}
+# --------------------------------------------------------------
+# Set UP
+# --------------------------------------------------------------
+x <- myX
+y <- myY
+e <- y - x%*%myBeta
+#round(mean(e), 5)
+
+n <- length(y)
+k <- ncol(x)
+a <- n/(n-k)
+sig2 <- as.numeric((t(e) %*% e)/(n-k))
+xx <- solve(t(x)%*%x) #X'X^-1
+
+#Leverage 
+leverage <- rowSums(x*(x%*%solve(t(x)%*%x)))
+
+# --------------------------------------------------------------
+# homoskedastic SE
+# --------------------------------------------------------------
+v0 <- xx*sig2
+s0 <- sqrt(diag(v0)) # Homoskedastic formula
+
+# check
+# summary(lm(data = myData, formula = netwp_h ~ elasticity))
+
+# --------------------------------------------------------------
+# heteroskedasticity-robust SE
+# --------------------------------------------------------------
+u1 <- x*(e%*%matrix(1,1,k))
+v1 <- n/(n-k)*xx %*% (t(u1)%*%u1) %*% xx
+s1 <- sqrt(diag(v1)) # Heteroskedastic-robust (White formula)
+
+# --------------------------------------------------------------
+# HC2
+# --------------------------------------------------------------
+u2 <- x*((e/sqrt(1-leverage))%*%matrix(1,1,k))
+v2 <- xx %*% (t(u2)%*%u2) %*% xx
+s2 <- sqrt(diag(v2)) # HC2 (Horn-Horn-Duncan formula)
+
+# --------------------------------------------------------------
+# HC3
+# --------------------------------------------------------------
+u3 <- x*((e/(1-leverage))%*%matrix(1,1,k))
+v3 <- xx %*% (t(u3)%*%u3) %*% xx
+s3 <- sqrt(diag(v3)) # HC3 (Andrews formula)
+
+```
+
+
+Homoskedastic SE: $SE_0$ =  `r s0[1]`, $SE_1$ =  `r s0[2]`
+
+Heteroskedasticity-Robust SE (aka Edgar Huber White formula): $SE_0$ =  `r s1[1]`, $SE_1$ =  `r s1[2]`
+
+HC2 (aka Horn-Horn-Duncan formula) SE: $SE_0$ =  `r s2[1]`, $SE_1$ =  `r s2[2]`
+
+HC3 (aka Andrews formula): $SE_0$ =  `r s3[1]`, $SE_1$ =  `r s3[2]`
+
+### Now, we will estimate the three standard errors from Abadie et al. (2020) [see section 4]. I will walk you through the estimation.
+
+$$V^{causal} = n^{-1} \Gamma^{-1}(\rho \Delta^{cond} + (1-\rho) \Delta^{ehw}) \Gamma^{-1}$$
+$$V^{causal, sample} = \Gamma^{-1} \Delta^{cond}  \Gamma^{-1}$$
+$$V^{descr} = n^{-1} (1 - \rho) \Gamma^{-1} \Delta^{ehw} \Gamma^{-1}$$
+$$V^{ehw} = n^{-1} \Gamma^{-1} \Delta^{ehw} \Gamma^{-1}$$
+
+$X$ is elasticity. $Z$ is our constant. $Y$ is the outcome of network change. 
+
+```{r, message= FALSE}
+# --------------------------------------------------------------
+# Estimate e_hat as standard residual from Y ~ X + Z 
+# --------------------------------------------------------------
+n<- length(myData$elasticity)
+myZ <- rep(1, n)
+myX <- myData$elasticity 
+myY <- myData$netwp_h
+
+myBeta <- myOLS(myY, cbind(myZ,myX))
+
+myStand_Resid <- myY - cbind(myZ,myX)%*%myBeta
+
+# --------------------------------------------------------------
+# Estimate the short regression of X~Z to calculate gamma_hat,
+# which is the projeciton of X on Z. This is the mean when Z is a constant
+# --------------------------------------------------------------
+myGamma_i <- myOLS(myX, myZ)
+myGamma_i <- as.numeric(myGamma_i)
+
+# Check 
+# mean(myX)
+
+# --------------------------------------------------------------
+# Estimate Gamma_hat
+# --------------------------------------------------------------
+Gamma_hat <- 1/n * sum((myX - myGamma_i*myZ)^2)
+
+# --------------------------------------------------------------
+# Estimate Delta_ehw 
+# --------------------------------------------------------------
+Delta_ehw <- 1/n * sum((myX - myGamma_i*myZ)*myStand_Resid^2*(myX - myGamma_i*myZ))
+
+# --------------------------------------------------------------
+# Now estimate V_EHW
+# --------------------------------------------------------------
+V_EHW <- (1/n)*Gamma_hat*Delta_ehw*Gamma_hat #ATTN: The check didn't match as close as I thought it would...
+SE_EHW <- sqrt(V_EHW)
+
+# --------------------------------------------------------------
+# Estimate rho and V_descr
+# --------------------------------------------------------------
+myRho <- n/3006
+
+V_descr <- (1-myRho)*V_EHW
+SE_descr <- sqrt(V_descr)
+
+# --------------------------------------------------------------
+# Estimate G_hat
+# --------------------------------------------------------------
+
+
+
+```
+
+* $\hat \epsilon_i$ is a vector
+* I estimate $\hat \gamma$ = `r myGamma_i`
+* I estimate $\hat \Gamma$ = `r Gamma_hat`
+* I estimate $\hat \Delta^{ehw}$ = `r Delta_ehw`
+* I estimate $\hat V^{ehw}$ = `r V_EHW`
+* I estimate the standard error (descr) is `r SE_descr`. The EHW standard error was `r SE_EHW`, which is slightly larger. 
+* 
+
+
+
+
+# Citations
+Hansen, Bruce. Econometrics. Princeton: Princeton University Press, 2014.
