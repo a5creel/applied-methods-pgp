@@ -9,6 +9,8 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 library(vroom)
 library(dplyr)
+library(ggplot2)
+options(scipen=999)
 ```
 For both analyses this week, you will be using data from Mian and Sufi’s 2014 Econometrica article, What Explains the 2007-2009 Drop in Employment?. The analyses will not match the exact numbers in the paper, but the full replication set is available if you are interested in exploring it.
 
@@ -125,7 +127,7 @@ HC3 (aka Andrews formula): $SE_0$ =  `r s3[1]`, $SE_1$ =  `r s3[2]`
 ### Now, we will estimate the three standard errors from Abadie et al. (2020) [see section 4]. I will walk you through the estimation.
 
 $$V^{causal} = n^{-1} \Gamma^{-1}(\rho \Delta^{cond} + (1-\rho) \Delta^{ehw}) \Gamma^{-1}$$
-$$V^{causal, sample} = \Gamma^{-1} \Delta^{cond}  \Gamma^{-1}$$
+$$V^{causal, sample} = n^{-1}\Gamma^{-1} \Delta^{cond}  \Gamma^{-1}$$
 $$V^{descr} = n^{-1} (1 - \rho) \Gamma^{-1} \Delta^{ehw} \Gamma^{-1}$$
 $$V^{ehw} = n^{-1} \Gamma^{-1} \Delta^{ehw} \Gamma^{-1}$$
 
@@ -181,8 +183,25 @@ SE_descr <- sqrt(V_descr)
 # --------------------------------------------------------------
 # Estimate G_hat
 # --------------------------------------------------------------
+G_hat <- (1/n* sum(myX - myGamma_i* myZ)*myStand_Resid%*%t(myZ))*(1/n*sum(myZ %*% t(myZ)))^(-1)
+G_hat <- round(G_hat, digits = 25)
 
+# --------------------------------------------------------------
+# Estimate Delta_z
+# --------------------------------------------------------------
+Delta_z <- 1/n*sum(((myX - myGamma_i*myZ) * myStand_Resid - G_hat%*%myZ)^2) 
 
+# Check 
+# (round(Delta_z,15) == round(Delta_ehw, 15))
+
+# --------------------------------------------------------------
+# Estimate V_casaul, and V_causal_sample using Delta_z instead of Delta_cond
+# --------------------------------------------------------------
+V_causal <- 1/n * Gamma_hat*(myRho*Delta_z+(1+myRho)*Delta_ehw)*Gamma_hat
+SE_causal <- sqrt(V_causal)
+
+V_causal_sample <- 1/n*Gamma_hat* Delta_z*Gamma_hat
+SE_causal_sample <- sqrt(V_causal_sample)
 
 ```
 
@@ -192,8 +211,195 @@ SE_descr <- sqrt(V_descr)
 * I estimate $\hat \Delta^{ehw}$ = `r Delta_ehw`
 * I estimate $\hat V^{ehw}$ = `r V_EHW`
 * I estimate the standard error (descr) is `r SE_descr`. The EHW standard error was `r SE_EHW`, which is slightly larger. 
-* 
+* I estimate $\hat G$ to be a matrix that is 540x540 and every element is zero. 
+* I estimate $\hat \Delta^{Z}$ = `r Delta_z` which is the same as $\hat \Delta^{ehw}$.
+* I estimate the standard error (causal) is `r SE_causal`. The standard error (causal, sample) is `r SE_causal_sample`, which is the same as the EHW approach. 
 
+### Reimplement this appraoch but include state fixed effects as controls in Z. Report your estimates for the standard errors using $V^{EHW}$, $V^{descr}$, $V^{causal}$, $V^{causal,sample}$.
+
+```{r, message= FALSE}
+
+# --------------------------------------------------------------
+# Create matrix Z for fixed effects 
+# --------------------------------------------------------------
+states_list <- unique(myData$statename)
+
+# minus one to drop one fixed effect so that we are not over specified
+myZ_fe <- matrix(nrow = n, ncol=length(states_list)-1)
+
+for (i in 1:length(states_list)-1) {
+  for (j in 1:n) {
+    myZ_fe[j,i] <- (myData$statename[j] == states_list[i])
+  }
+}
+
+# --------------------------------------------------------------
+# Create function so not all variables are overwritten 
+# --------------------------------------------------------------
+
+myRedo <- function(){
+  # --------------------------------------------------------------
+  # Estimate e_hat as standard residual from Y ~ X + Z 
+  # --------------------------------------------------------------
+  n<- length(myData$elasticity)
+  myZ <- myZ_fe
+  myX <- myData$elasticity 
+  myY <- myData$netwp_h
+  
+  myBeta <- myOLS(myY, cbind(myZ,myX))
+  
+  myStand_Resid <- myY - cbind(myZ,myX)%*%myBeta
+  # round(mean(myStand_Resid), 4)
+  
+  # --------------------------------------------------------------
+  # Estimate the short regression of X~Z to calculate gamma_hat,
+  # which is the projeciton of X on Z. This is the mean when Z is a constant
+  # --------------------------------------------------------------
+  myGamma_i <- myOLS(myX, myZ)
+  myGamma_i <- as.numeric(myGamma_i)
+  
+  # Check 
+  # mean(myX)
+  
+  # --------------------------------------------------------------
+  # Estimate Gamma_hat
+  # --------------------------------------------------------------
+  Gamma_hat <- 1/n * sum((myX - myGamma_i*myZ)^2)
+  
+  # --------------------------------------------------------------
+  # Estimate Delta_ehw 
+  # --------------------------------------------------------------
+  Delta_ehw <- 1/n * sum((myX - myGamma_i%*%t(myZ))%*%myStand_Resid^2%*%(myX - myGamma_i%*%t(myZ)))
+  
+  # --------------------------------------------------------------
+  # Now estimate V_EHW
+  # --------------------------------------------------------------
+  V_EHW <- (1/n)*Gamma_hat*Delta_ehw*Gamma_hat #ATTN: The check didn't match as close as I thought it would...
+  SE_EHW <- sqrt(V_EHW)
+  
+  # --------------------------------------------------------------
+  # Estimate rho and V_descr
+  # --------------------------------------------------------------
+  myRho <- n/3006
+  
+  V_descr <- (1-myRho)*V_EHW
+  SE_descr <- sqrt(V_descr)
+  
+  # --------------------------------------------------------------
+  # Estimate G_hat
+  # --------------------------------------------------------------
+  G_hat <- (t(1/n* sum(myX - myGamma_i%*% t(myZ))*myStand_Resid)%*%myZ)*(1/n*sum(myZ %*% t(myZ)))^(-1)
+  G_hat <- round(G_hat, digits = 25)
+  
+  # --------------------------------------------------------------
+  # Estimate Delta_z
+  # --------------------------------------------------------------
+  Delta_z <- 1/n*sum(((myX - myGamma_i%*%t(myZ)) * t(myStand_Resid) - G_hat%*%t(myZ))^2) 
+  
+  # Check 
+  (round(Delta_z,15) == round(Delta_ehw, 15))
+  
+  # --------------------------------------------------------------
+  # Estimate V_casaul, and V_causal_sample using Delta_z instead of Delta_cond
+  # --------------------------------------------------------------
+  V_causal <- 1/n * Gamma_hat*(myRho*Delta_z+(1+myRho)*Delta_ehw)*Gamma_hat
+  SE_causal <- sqrt(V_causal)
+  
+  V_causal_sample <- 1/n*Gamma_hat* Delta_z*Gamma_hat
+  SE_causal_sample <- sqrt(V_causal_sample)
+  
+  #--------------------------------------------------------------
+  #Report your estimates for the standard errors
+  #--------------------------------------------------------------
+  results <- list(SE_EHW = SE_EHW,
+                  SE_descr = SE_descr,
+                  SE_causal = SE_causal,
+                  SE_causal_sample = SE_causal_sample)
+
+  return(results)
+}
+ 
+results <- myRedo()
+results
+
+```
+
+When I calculate $\Delta^{EHW}$ it's negative, so something has gone wrong. 
+
+
+## Question 2: Binscatter
+For this problem, use the dataset networth_delta_elas.csv, where county fips is the county FIPS code, statename is the state FIPS code, year is the year, elasticity is the Saiz elasticity measure, total is the number of households in each county, and hpi is Zillow House Price value. For this problem, you may use your own regression estimate function, or a pre-existing function to estimate the regression.
+
+### Calculate annual house price appreciation (hpa) within each county, and regress HPA on the elasticity measure interacted with year, using your constructed function. I.e. $hpa_{it} = \alpha_t + \sum_s elasticity_i \times 1(year_t = S) \beta_t$. Plot the $\beta_t$ coefficient for each year across time. Report the coefficient measuring the effect of elasticity in 2008.
+
+```{r, message=FALSE}
+# --------------------------------------------------------------
+# read in data 
+# --------------------------------------------------------------
+rm(list = ls())
+
+# myData <- vroom('https://raw.githubusercontent.com/paulgp/applied-methods-phd/main/homework/Homework3/yearly_hp.csv')
+# vroom_write(myData, file = "yearly.csv")
+
+myData <- vroom('yearly.csv') %>%
+  mutate(year = as.factor(year))
+
+# --------------------------------------------------------------
+# estimate regression
+# --------------------------------------------------------------
+
+myReg <- lm(data = myData, formula = hpi ~ elasticity:year)
+myCoefs <- unname(myReg$coefficients)[2:17] # only the beta coefs
+
+plotData <- as.data.frame(cbind(year = 2001:2016, beta = myCoefs))
+
+# --------------------------------------------------------------
+# Plot
+# --------------------------------------------------------------
+ggplot(data = plotData, aes(x = year, y=beta))+ 
+  geom_point() +
+  ggtitle("Plot of beta estimates by year") +
+  theme_bw()
+
+```
+
+The $\beta_{2008}$ coefficient is `r myReg$coefficients['elasticity:year2008']`
+
+### Construct 10 decile dummies for the elasticity and reestimate the regression, pooling the years 2008-2010, and using the ten dummies in the place of the continuous elasticity measure. Plot these decile effects such that each point reflects an approximation to the conditional expectation function. Report the value for the first decile.
+
+```{r}
+# --------------------------------------------------------------
+# data work
+# --------------------------------------------------------------
+#pooling data (??) I filter to 2008-2010
+myData_b <- myData %>%
+  filter(year == 2008 | year == 2009 | year == 2010) %>%
+  mutate(decile = ntile(elasticity, 10)) %>% # create a decile dummy
+  mutate(decile = as.factor(decile)) %>%
+  mutate(decile = relevel(decile, ref = 10)) # using last decile as level
+  
+# quantile(myData_b$elasticity, probs = seq(.1, .9, by = .1))
+
+# --------------------------------------------------------------
+# regress on decile dummies 
+# --------------------------------------------------------------
+myReg_b <- lm(myData_b, formula = hpi ~ decile)
+myCoefs_b <- myReg_b$coefficients[2:10] # only the beta coefs
+
+# --------------------------------------------------------------
+# Plot
+# --------------------------------------------------------------
+plotData_b <- as.data.frame(cbind(elast_dec = 1:9, hpi = myCoefs_b))
+
+ggplot(data = plotData_b, aes(x = elast_dec, y=hpi))+ 
+  geom_point() +
+  ggtitle("Approximation of True CEF") +
+  xlab("Elasticity Decile") +
+  theme_bw()
+
+
+```
+I find the coefficient for the first decile is `r unname(myCoefs_b[1])`
 
 
 
