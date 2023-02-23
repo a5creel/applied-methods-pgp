@@ -1,0 +1,186 @@
+---
+title: "Homework Three"
+author: "Andie Creel"
+date: "2023-02-23"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(quantreg)
+library(vroom)
+library(dplyr)
+library(stargazer)
+```
+
+# Quantile Regression 
+This analysis will use the dataset from Problem Set 1, lalonde_nsw.csv (which I will refer to as NSW), as well as the dataset from Problem Set 2, lalonde_psid.csv (which I will call PSID).
+
+**We will begin by defining an estimation approach for doing quantile regression that doesn’t require linear programming. This approach comes from Gary Chamberlain (in Chamberlain (1994), and discussed in Angrist et al. (2006)).**
+
+**Let $X$ be a (discrete) right hand side variable with J discrete values. For each $j$ value of $X = x_j$, calculate $\hat \pi_t(C) = Q_\tau(Y|X_j)$, which is the $\tau$ percentile of the outcome variable, conditional on the value of $X$, and $\hat p_j$, which is the empirical probability of $X = x_j$. Do so using the PSID dataset for $X =$ education, for $\tau = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)$**
+
+```{r, message= FALSE, results='asis'}
+# --------------------------------------------------------------
+# read in data 
+# --------------------------------------------------------------
+
+myData <- vroom("lalonde_psid.csv") %>%
+  mutate(education = as.factor(education)) %>%
+  mutate(Y = re78) %>%
+  select(Y, education)
+
+# --------------------------------------------------------------
+# p_j, probability of X = x_j
+# --------------------------------------------------------------
+p <- summary(myData$education)/length(myData$education)
+
+# p["0"]
+
+# --------------------------------------------------------------
+# pi_j, \tau percentile of Y, conditional on the value of X
+# --------------------------------------------------------------
+
+myPi <- as.data.frame(matrix(nrow = 17, ncol = 9))
+colnames(myPi) <- c(".1", ".2", ".3", ".4", ".5", ".6", ".7", ".8", ".9")
+rownames(myPi) <- levels(myData$education)
+
+for (i in 1:length(levels(myData$education))) {
+  # condition on education level 
+  myWorking<- myData %>%
+    filter(education == levels(myData$education)[i])
+  
+  # calculate percentiles of outcome
+  myPi[i,] <- round(unname(quantile(myWorking$Y, probs = c(.1, .2, .3, .4, .5, .6, .7, .8, .9))),0)
+}
+
+
+# --------------------------------------------------------------
+# print tables
+# --------------------------------------------------------------
+stargazer::stargazer(myPi, type = 'latex', summary = FALSE, title = "pi")
+
+stargazer::stargazer(t(as.data.frame(p)), type = 'latex', summary = FALSE, title = "p")
+
+```
+
+
+Answers are tables 1 and 2.
+
+**Given these inputs, the quantile regression slope estimates is just**
+
+$$\hat \beta_\tau  =  \arg \min_b \sum_j (\hat \pi_\tau(x_j) - x_j b)^2 \hat p_j.$$
+
+**This is a simple (weighted) linear regression (or minimum distance problem), with the diagonal weight matrix $\hat W diag(\hat p_1, ..., \hat p_J)$. Estimate $\hat \beta_\tau$ for the education example above.**
+
+
+```{r, results='asis'}
+# --------------------------------------------------------------
+# Calculate beta
+# --------------------------------------------------------------
+X <- as.numeric(levels(myData$education))
+W <- diag(p)
+matrix_pi <- unname(as.matrix(myPi))
+
+myBeta <- (t(X) %*% W %*% X)^{-1} %*% t(X) %*% W %*% matrix_pi
+
+
+# clean up beta 
+myBeta_t <- as.data.frame(round(myBeta, 0))
+colnames(myBeta_t) <- c(".1", ".2", ".3", ".4", ".5", ".6", ".7", ".8", ".9")
+rownames(myBeta_t) <- c("Beta_t")
+
+# print beta
+stargazer::stargazer(myBeta_t, type = 'latex', summary = FALSE, title = "Beta")
+
+
+```
+
+$$\hat \beta = (X'WX)^{-1}X'W\pi $$
+
+
+**Our variance estimator is the sum of two terms (coming from uncertainty in the QCF, and the estimation of the slope conditional on those terms), V and D:**
+
+$$V = (x'\hat W x)^{-1}x'\hat W\Sigma \hat W x(x'\hat W x)^{-1},$$
+
+$$\Sigma = diag(\sigma^2_{\tau,1}/p_1, ..., \sigma^2_{\tau,J}/p_J,$$
+
+$$D = (x' \hat W x)^{-1}x' \hat W \Delta\hat W x(x'\hat W x)^{-1},$$
+$$\Delta = diag \Big((\pi_{t,1} - x_1 \beta_\tau)^2/p_1, ... , (\pi_{t,J} - x_J \beta_\tau)^2/p_J \Big).$$
+
+**Everything here should be straight forward to estimate, except for $\sigma^2_{\tau,j}$. To do this, define the following order statistics:**
+
+$$b_j = \max \Big\{1, round\Big(\tau N_j - z_{1 - \alpha/2}(\tau(1-\tau)N_j)^{1/2} \Big) \Big\}$$
+
+$$t_j = \min \Big\{1, round\Big(\tau N_j + z_{1 - \alpha/2}(\tau(1-\tau)N_j)^{1/2} \Big) \Big\}$$
+ **where round is to the closest integer, and $z_{1 - \alpha/2} = 1.96$typically, and $N_j$ is the number of observations in the jth bin of X. Then,**
+
+$$\hat \sigma^2_{\tau, j} = N_j \Bigg( \frac{y_j(t_j) - y_j(b_j)}{2z_{1 - \alpha/2}} \Bigg)^2$$
+**Report the standard error on you estimates, which is calculated as $((V+D/N))^{1/2}$**
+
+```{r}
+# --------------------------------------------------------------
+# Calculate b_jt and t_jt
+# --------------------------------------------------------------
+
+myTau <- c(.1, .2, .3, .4, .5, .6, .7, .8, .9)
+myN <- table(myData$education)
+
+b_j_tau <- matrix(nrow = 17, ncol = 9)
+t_j_tau <- matrix(nrow = 17, ncol = 9)
+
+
+for (j in 1:17) {
+  for (t in 1:9) {
+    b_j_tau[j, t] <- max(1, round(myTau[t]*myN[j]- 1.96 * (myTau[t]*(1-myTau[t])*myN[j])^(1/2), 
+                                   digits = 0))
+    t_j_tau[j,t]<- min(myN[j], round(myTau[t]*myN[j]+ 1.96 * (myTau[t]*(1-myTau[t])*myN[j])^(1/2), 
+                                   digits = 0))
+  }
+
+}
+
+# --------------------------------------------------------------
+# Calculating sigma
+# --------------------------------------------------------------
+
+# --------------------------------------------------------------
+# Calculating Sigma
+# --------------------------------------------------------------
+
+# --------------------------------------------------------------
+# Calculating V
+# --------------------------------------------------------------
+
+
+# --------------------------------------------------------------
+# Calculating Delta
+# --------------------------------------------------------------
+#storing each delta in a list
+myDelta <- vector("list", 9)
+
+#each item is a matrix that is 17x17 with values along diagonal
+myDelta_vector <- vector(length = 17)
+
+#populating Delta
+for (i in 1:9) {
+  for (j in 1:17) {
+    myDelta_vector[j] <- (myPi[j, i] - X[j]*myBeta[i])^2/p[j]
+  }
+  myDelta[[i]] <- diag(myDelta_vector)
+} 
+ 
+# --------------------------------------------------------------
+# Calculating D
+# --------------------------------------------------------------
+
+D <- vector(length = 9)
+
+for (t in 1:9) {
+  D[t] <- (t(X) %*% X)^{-1} %*% t(X) %*% W %*% myDelta[[t]] %*% W %*% X%*% (t(X) %*% W %*% X)^{-1}
+}
+
+```
+
+
