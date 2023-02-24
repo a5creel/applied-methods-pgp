@@ -142,8 +142,28 @@ for (j in 1:17) {
 }
 
 # --------------------------------------------------------------
-# Calculating sigma
+# Calculating sigma (a 17 x 9 matrix)
 # --------------------------------------------------------------
+educ_j <- levels(myData$education)
+
+sigma <- matrix(nrow = 17, ncol = 9)
+
+#calculating y_j(t_j)
+for (j in 1:17) {
+  for (t in 1:9) {
+    # calculating y_j(t_j)
+    y_j <- myData %>%
+      filter(education == educ_j[j]) %>%
+      select(Y) %>%
+      arrange(Y)
+    
+    y_j_t <- y_j$Y[t_j_tau[j,t]]
+    y_j_b <- y_j$Y[b_j_tau[j,t]]
+
+    sigma[j, t] <- myN[j]*((y_j_t - y_j_b)/2*1.96)^2
+  
+  }
+}
 
 # --------------------------------------------------------------
 # Calculating Sigma
