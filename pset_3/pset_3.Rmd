@@ -17,7 +17,7 @@ library(stargazer)
 # Quantile Regression 
 This analysis will use the dataset from Problem Set 1, lalonde_nsw.csv (which I will refer to as NSW), as well as the dataset from Problem Set 2, lalonde_psid.csv (which I will call PSID).
 
-**We will begin by defining an estimation approach for doing quantile regression that doesn’t require linear programming. This approach comes from Gary Chamberlain (in Chamberlain (1994), and discussed in Angrist et al. (2006)).**
+**a) We will begin by defining an estimation approach for doing quantile regression that doesn’t require linear programming. This approach comes from Gary Chamberlain (in Chamberlain (1994), and discussed in Angrist et al. (2006)).**
 
 **Let $X$ be a (discrete) right hand side variable with J discrete values. For each $j$ value of $X = x_j$, calculate $\hat \pi_t(C) = Q_\tau(Y|X_j)$, which is the $\tau$ percentile of the outcome variable, conditional on the value of $X$, and $\hat p_j$, which is the empirical probability of $X = x_j$. Do so using the PSID dataset for $X =$ education, for $\tau = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)$**
 
@@ -68,7 +68,7 @@ stargazer::stargazer(t(as.data.frame(p)), type = 'latex', summary = FALSE, title
 
 Answers are tables 1 and 2.
 
-**Given these inputs, the quantile regression slope estimates is just**
+**b) Given these inputs, the quantile regression slope estimates is just**
 
 $$\hat \beta_\tau  =  \arg \min_b \sum_j (\hat \pi_\tau(x_j) - x_j b)^2 \hat p_j.$$
 
@@ -100,7 +100,7 @@ stargazer::stargazer(myBeta_t, type = 'latex', summary = FALSE, title = "Beta")
 $$\hat \beta = (X'WX)^{-1}X'W\pi $$
 
 
-**Our variance estimator is the sum of two terms (coming from uncertainty in the QCF, and the estimation of the slope conditional on those terms), V and D:**
+**c) Our variance estimator is the sum of two terms (coming from uncertainty in the QCF, and the estimation of the slope conditional on those terms), V and D:**
 
 $$V = (x'\hat W x)^{-1}x'\hat W\Sigma \hat W x(x'\hat W x)^{-1},$$
 
@@ -119,7 +119,7 @@ $$t_j = \min \Big\{1, round\Big(\tau N_j + z_{1 - \alpha/2}(\tau(1-\tau)N_j)^{1/
 $$\hat \sigma^2_{\tau, j} = N_j \Bigg( \frac{y_j(t_j) - y_j(b_j)}{2z_{1 - \alpha/2}} \Bigg)^2$$
 **Report the standard error on you estimates, which is calculated as $((V+D/N))^{1/2}$**
 
-```{r}
+```{r, results='asis'}
 # --------------------------------------------------------------
 # Calculate b_jt and t_jt
 # --------------------------------------------------------------
@@ -151,7 +151,7 @@ sigma <- matrix(nrow = 17, ncol = 9)
 #calculating y_j(t_j)
 for (j in 1:17) {
   for (t in 1:9) {
-    # calculating y_j(t_j)
+    # calculating y_j()
     y_j <- myData %>%
       filter(education == educ_j[j]) %>%
       select(Y) %>%
@@ -166,41 +166,297 @@ for (j in 1:17) {
 }
 
 # --------------------------------------------------------------
-# Calculating Sigma
+# Calculating Sigma: nine 17x17 matrices
 # --------------------------------------------------------------
+Sigma <- vector("list", 9)
+
+for (t in 1:9) {
+  Sigma[[t]] <- matrix(nrow = 17, ncol = 17,
+                       data = diag(sigma[,t]))
+}
 
 # --------------------------------------------------------------
 # Calculating V
 # --------------------------------------------------------------
+V <- vector(length = 9)
 
+for (t in 1:9) {
+  V[t] <- (t(X) %*% X)^{-1} %*% t(X) %*% W %*% Sigma[[t]] %*% W %*% X%*% (t(X) %*% W %*% X)^{-1}
+}
 
 # --------------------------------------------------------------
 # Calculating Delta
 # --------------------------------------------------------------
 #storing each delta in a list
-myDelta <- vector("list", 9)
+Delta <- vector("list", 9)
 
 #each item is a matrix that is 17x17 with values along diagonal
-myDelta_vector <- vector(length = 17)
+Delta_vector <- vector(length = 17)
 
 #populating Delta
 for (i in 1:9) {
   for (j in 1:17) {
-    myDelta_vector[j] <- (myPi[j, i] - X[j]*myBeta[i])^2/p[j]
+    Delta_vector[j] <- (myPi[j, i] - X[j]*myBeta[i])^2/p[j]
   }
-  myDelta[[i]] <- diag(myDelta_vector)
+  Delta[[i]] <- diag(Delta_vector)
 } 
  
 # --------------------------------------------------------------
 # Calculating D
 # --------------------------------------------------------------
-
 D <- vector(length = 9)
 
 for (t in 1:9) {
-  D[t] <- (t(X) %*% X)^{-1} %*% t(X) %*% W %*% myDelta[[t]] %*% W %*% X%*% (t(X) %*% W %*% X)^{-1}
+  D[t] <- (t(X) %*% X)^{-1} %*% t(X) %*% W %*% Delta[[t]] %*% W %*% X%*% (t(X) %*% W %*% X)^{-1}
 }
+
+# --------------------------------------------------------------
+# Calculating and reporting SE
+# --------------------------------------------------------------
+mySE <- vector(mode = "numeric", length = 9)
+
+for (t in 1:9) {
+  mySE[t] <- sqrt((V[t]+D[t])/sum(myN))
+}
+
+# clean up beta 
+mySE_t <- as.data.frame(round(t(mySE), 3))
+colnames(mySE_t) <- c(".1", ".2", ".3", ".4", ".5", ".6", ".7", ".8", ".9")
+rownames(mySE_t) <- c("Stand_Error")
+
+# print beta
+stargazer::stargazer(mySE_t, type = 'latex', summary = FALSE, title = "Standard Errors for Betas")
+
+```
+
+**d) Finally,using the NSW dataset, calculate the $\tau$ = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9) treatment effects, and their standard errors.**
+
+```{r, message=FALSE, results='asis'}
+#exported above code as R script to make it a function 
+# knitr::purl("pset_3.Rmd", documentation = 2) 
+
+# Reading in data
+myData_2 <- vroom("lalonde_nsw.csv")
+
+# source function 
+source('getBeta_SE.R') 
+
+# get results 
+results <- getBeta_SE(df = myData_2) 
+
+# --------------------------------------------------------------
+# Reporting Beta and SE
+# --------------------------------------------------------------
+stargazer::stargazer(results$Beta, type = 'latex', summary = FALSE, title = "Beta for NSW")
+stargazer::stargazer(results$SE, type = 'latex', summary = FALSE, title = "Standard Error for NSW")
+
 
 ```
 
 
+# Poisson Regression 
+
+## a) 
+```{r, message=FALSE}
+# --------------------------------------------------------------
+# Read in data and 
+# --------------------------------------------------------------
+rm(list = ls())
+library(fixest)
+library(broom)
+library(kableExtra)
+
+myData <- vroom("detroit.csv")
+
+# --------------------------------------------------------------
+# OLS regression 
+# --------------------------------------------------------------
+
+regA <- feols(data = myData, 
+              fml = flows ~ distance_Google_miles | home_ID + work_ID) %>%
+  tidy()
+
+
+```
+Coefficient (SE): `r regA$estimate[1]`, (`r regA$std.error[1]`)
+
+## b) 
+
+```{r}
+ # --------------------------------------------------------------
+# OLS regression 
+# --------------------------------------------------------------
+
+regB <- feols(data = myData, 
+              fml = log(flows) ~ log(distance_Google_miles) | home_ID + work_ID) %>%
+  tidy()
+
+
+```
+
+Coefficient (SE): `r regB$estimate[1]`, (`r regB$std.error[1]`)
+
+This transformation drops 75% of the data set where either the dependent or independent variable is a zero due to the log transformation. 
+
+
+## c) 
+
+```{r}
+regC <- vector("list", 3)
+
+regC[[1]] <- feols(data = myData, 
+            fml = log(0.1 + flows) ~ log(distance_Google_miles) | home_ID + work_ID) %>%
+  tidy()
+ 
+regC[[2]] <- feols(data = myData, 
+            fml = log(1 + flows) ~ log(distance_Google_miles) | home_ID + work_ID) %>%
+  tidy()
+
+regC[[3]] <- feols(data = myData, 
+            fml = log(10 + flows) ~ log(distance_Google_miles) | home_ID + work_ID) %>%
+  tidy()
+ 
+```
+
+Coefficient (SE) for 0.1: `r regC[[1]]$estimate[1]`, (`r regC[[1]]$std.error[1]`)
+
+Coefficient (SE) for 1: `r regC[[2]]$estimate[1]`, (`r regC[[2]]$std.error[1]`)
+
+Coefficient (SE) for 10: `r regC[[3]]$estimate[1]`, (`r regC[[3]]$std.error[1]`)
+
+The addition of c prevents the dropping of observations, however the interpretation of the result is confounded by the addition of c. As c increases, the estimate approached zero. 
+
+
+
+## d 
+```{r}
+regD <- fepois(data = myData, 
+              fml = flows ~ distance_Google_miles | home_ID + work_ID, vcov = "hetero") %>%
+  tidy()
+
+```
+The poisson model (numerically) estimates
+$$\frac{dlog(E(Y|X))}{dX}.$$
+which can be interpreted as the log of a semi-elasticity. This allows up to keep the zeros and also still have a logged estimand that is a matter of interest. The estimates for a poisson are consistent and the standard error coverage is correct when using heteroskedastically robust standard errors. 
+
+Coefficient (SE) for poisson: `r regD$estimate[1]`, (`r regD$std.error[1]`)
+
+The estimate is very close to part A, but the standard errors are much smaller. Estimates in B and C (0.1) and C (1) were far larger. C (10) was a similar estimate, but the interpretation of the estimand in C is maybe impossible. 
+
+# Duration Modeling 
+
+## a
+The unconditional probability that a household stays in a home for T or more yeas is $1 - F(t)$, where $F(t) = Pr(T < t)$ which is the probability of a duration shorter than $t$.
+
+```{r, message=FALSE}
+# --------------------------------------------------------------
+# Data set up
+# --------------------------------------------------------------
+
+rm(list = ls())
+
+myData_og <- vroom("https://raw.githubusercontent.com/paulgp/applied-methods-phd/main/homework/Homework5/acs_duration.csv")
+
+
+# --------------------------------------------------------------
+# prob stays in house longer than 7 years set up 
+# --------------------------------------------------------------
+myData <- myData_og %>%
+  mutate(T_less_7 = (moving_approx < 7))
+
+
+```
+
+$1 - F(7)$ = `r round(1 - sum(myData$T_less_7)/length(myData$T_less_7),4)`
+
+
+## b 
+
+I calculate the hazard rate as 
+$$ \theta(t) =  - \frac{\log(1 - F(t))}{t}$$
+(page 17/30 in the duration modeling slides). 
+
+```{r, results='asis'}
+# --------------------------------------------------------------
+# Different hazard rates 
+# --------------------------------------------------------------
+move_levels <- as.numeric(levels(as.factor(myData$moving_approx)))
+
+myHazard_rates <- vector(mode = "numeric", length = 7)
+
+for (i in 1:7) {
+  myTemp <- myData %>%
+    mutate(T_less = (moving_approx < move_levels[i]))
+  
+  F_t <- sum(myTemp$T_less)/length(myTemp$T_less)
+  
+  myHazard_rates[i] <- -log(1 - F_t)/ move_levels[i]
+}
+
+# --------------------------------------------------------------
+# print results 
+# --------------------------------------------------------------
+myHazard_rates_t <- as.data.frame(round(t(myHazard_rates), 5))
+colnames(myHazard_rates_t) <- move_levels
+rownames(myHazard_rates_t) <- c("Hazard Rate")
+
+# print beta
+stargazer::stargazer(myHazard_rates_t, type = 'latex', summary = FALSE, title = "Hazard Rate")
+
+t_7 <- myHazard_rates_t$`7`
+
+```
+The hazard rate for T = 7 is `r t_7`.
+
+
+## C
+
+```{r, results='asis'}
+# --------------------------------------------------------------
+# hazard rates for home and rent
+# --------------------------------------------------------------
+myHazard_rates_home <- vector(mode = "numeric", length = 7)
+myHazard_rates_rent <- vector(mode = "numeric", length = 7)
+
+for (i in 1:7) {
+  # home
+  myTemp_home <- myData %>%
+    filter(homeowner) %>%
+    mutate(T_less = (moving_approx < move_levels[i]))
+  
+  F_t_home <- sum(myTemp_home$T_less)/length(myTemp_home$T_less)
+  
+  myHazard_rates_home[i] <- -log(1 - F_t_home)/ move_levels[i]
+  
+  # rents
+  myTemp_rent <- myData %>%
+    filter(renter) %>%
+    mutate(T_less = (moving_approx < move_levels[i]))
+  
+  F_t_rent <- sum(myTemp_rent$T_less)/length(myTemp_rent$T_less)
+  
+  myHazard_rates_rent[i] <- -log(1 - F_t_rent)/ move_levels[i]
+}
+
+# --------------------------------------------------------------
+# print results 
+# --------------------------------------------------------------
+# home
+myH_home <- as.data.frame(round(t(myHazard_rates_home), 5))
+colnames(myH_home) <- move_levels
+rownames(myH_home) <- c("Homeowner")
+
+# rent
+myH_rent <- as.data.frame(round(t(myHazard_rates_rent), 5))
+colnames(myH_rent) <- move_levels
+rownames(myH_rent) <- c("Renter")
+
+myH_both <-bind_rows(myH_home, myH_rent)
+
+# print beta
+stargazer::stargazer(myH_both, type = 'latex', summary = FALSE, title = "Hazard Rates")
+
+
+
+```
+Renters always have a higher hazard rate than homeowners. The hazard values for homeowners are 0.04 and 0.15 for renters.
