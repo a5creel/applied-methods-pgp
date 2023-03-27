@@ -1,0 +1,98 @@
+---
+title: "Homework Four"
+author: "Andie Creel"
+date: "2023-03-29"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(fixest)
+library(vroom)
+library(dplyr)
+library(stargazer)
+library(ggplot2)
+```
+
+# Diff-in-diff
+
+10 time periods. 1000 ids. treatment turns on in period 5 (post). standard treatment and control. Be specific about what SE are used. 
+
+```{r}
+myData <- vroom("https://raw.githubusercontent.com/paulgp/applied-methods-phd/main/homework/dind_data.csv")
+
+
+myData <- myData %>%
+  mutate(time_id = as.factor(time_id)) %>%
+  mutate(ids = as.factor(ids)) %>%
+  mutate(treated_group = treated_group*1) %>%
+  mutate(post = post*1)
+
+```
+
+
+## a) Estimate three regressions. 
+
+```{r}
+
+reg_1 <- feols(data = myData, fml = y_instant ~ post*treated_group, vcov = "hetero")
+reg_2 <- feols(data = myData, fml = y_instant ~treated_group + treated_group:post | time_id, vcov = "hetero")
+reg_3 <- feols(data = myData, fml = y_instant ~  post:treated_group | ids + time_id, vcov = "hetero")
+
+etable(reg_1, reg_2, reg_3)
+```
+
+First, I'm using heteroskedastically robust standard errors. The point estimates are the same across regressions. The standard error decrease across regressions because more controls are added by using additional fixed effects.  
+
+```{r}
+myPlot <- myData %>%
+  group_by(time_id, treated_group) %>%
+  mutate(y_inst = mean(y_instant)) %>%
+  select(time_id, treated_group, y_inst) %>%
+  distinct() %>%
+  mutate(time_id = as.numeric(time_id)) %>%
+  mutate(treated_group = as.factor(treated_group))
+  
+ggplot(myPlot, aes(x = time_id, y = y_inst, color = treated_group)) + 
+  geom_point() +
+  theme_bw()
+```
+
+There is a steady decrease in Y across treatment and control. However, in the time period of treatment the treatment group didn't decrease. The decreasing trend continues after treatment but the gap is larger. 
+
+
+## b) 
+
+```{r}
+myData_4 <- myData %>%
+  mutate(time_id = relevel(time_id, '4'))
+
+reg_4 <- feols(data = myData, fml = y_instant ~  i(time_id, treated_group, "4") | ids + time_id, vcov = "hetero")
+
+
+etable(reg_4)
+
+```
+
+
+
+```{r}
+estDF<- as.data.frame(reg_4$coeftable) %>%
+  mutate(time_id = c(1,2, 3, 5, 6, 7, 8, 9, 10)) %>%
+  rename(se = `Std. Error`)
+
+ggplot(estDF, aes(x = time_id, y = Estimate)) + 
+  geom_point() +
+  geom_errorbar(aes(ymin=Estimate-se, ymax=Estimate+se), width=.2,
+                 position=position_dodge(.9)) +
+  geom_vline(xintercept = 4) +
+  theme_bw()
+
+
+```
+Point est in T = 6: `r estDF$Estimate[5]`
+Stand. error in T = 6: `r estDF$se[5]`
+
+## c) 
+
