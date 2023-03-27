@@ -37,13 +37,15 @@ myData <- myData %>%
 ```{r}
 
 reg_1 <- feols(data = myData, fml = y_instant ~ post*treated_group, vcov = "hetero")
-reg_2 <- feols(data = myData, fml = y_instant ~treated_group + treated_group:post | time_id, vcov = "hetero")
-reg_3 <- feols(data = myData, fml = y_instant ~  post:treated_group | ids + time_id, vcov = "hetero")
+reg_2 <- feols(data = myData, fml = y_instant ~treated_group + i(post, treated_group) | time_id, vcov = "hetero")
+reg_3 <- feols(data = myData, fml = y_instant ~  i(post, treated_group) | ids + time_id, vcov = "hetero")
 
 etable(reg_1, reg_2, reg_3)
 ```
 
 First, I'm using heteroskedastically robust standard errors. The point estimates are the same across regressions. The standard error decrease across regressions because more controls are added by using additional fixed effects.  
+
+Note that time period one is being omitted so that we have a reference level. 
 
 ```{r}
 myPlot <- myData %>%
@@ -94,5 +96,13 @@ ggplot(estDF, aes(x = time_id, y = Estimate)) +
 Point est in T = 6: `r estDF$Estimate[5]`
 Stand. error in T = 6: `r estDF$se[5]`
 
+If we do not omit a level (such as period 4) then we do not have a comparison level and interpreting our treatment effect becomes non-sensible.  
+
 ## c) 
+
+```{r}
+mean(estDF$Estimate)
+
+```
+The treatment effect in part A is larger than that in part B. Part A uses a different reference level. 
 
