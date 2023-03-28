@@ -36,9 +36,12 @@ myData <- myData %>%
 
 ```{r}
 
-reg_1 <- feols(data = myData, fml = y_instant ~ post*treated_group, vcov = "hetero")
-reg_2 <- feols(data = myData, fml = y_instant ~treated_group + i(post, treated_group) | time_id, vcov = "hetero")
-reg_3 <- feols(data = myData, fml = y_instant ~  i(post, treated_group) | ids + time_id, vcov = "hetero")
+myData$time_id <- relevel(myData$time_id, ref = "1")
+
+
+reg_1 <- feols(y_instant ~ treated_group * post, data = myData, vcov = "hetero")
+reg_2 <- feols(y_instant ~  treated_group + treated_group*post | time_id, data = myData, vcov = "hetero")
+reg_3 <- feols(y_instant ~  treated_group*post | time_id + ids, data = myData, vcov = "hetero")
 
 etable(reg_1, reg_2, reg_3)
 ```
@@ -67,24 +70,20 @@ There is a steady decrease in Y across treatment and control. However, in the ti
 ## b) 
 
 ```{r}
-myData_4 <- myData %>%
-  mutate(time_id = relevel(time_id, '4'))
 
-reg_4 <- feols(data = myData, fml = y_instant ~  i(time_id, treated_group, "4") | ids + time_id, vcov = "hetero")
+# regression 
+myData$time_id <- relevel(myData$time_id, ref = "4")
 
+reg_4 <- feols(y_instant ~  treated_group*time_id | time_id + ids, data = myData, vcov = "hetero")
 
 etable(reg_4)
 
-```
-
-
-
-```{r}
-estDF<- as.data.frame(reg_4$coeftable) %>%
-  mutate(time_id = c(1,2, 3, 5, 6, 7, 8, 9, 10)) %>%
+# plot 
+estDF_4<- as.data.frame(reg_4$coeftable) %>%
+  mutate(time_id = c(1,2, 3,  5, 6, 7, 8, 9, 10)) %>%
   rename(se = `Std. Error`)
 
-ggplot(estDF, aes(x = time_id, y = Estimate)) + 
+ggplot(estDF_4, aes(x = time_id, y = Estimate)) + 
   geom_point() +
   geom_errorbar(aes(ymin=Estimate-se, ymax=Estimate+se), width=.2,
                  position=position_dodge(.9)) +
@@ -93,16 +92,65 @@ ggplot(estDF, aes(x = time_id, y = Estimate)) +
 
 
 ```
-Point est in T = 6: `r estDF$Estimate[5]`
-Stand. error in T = 6: `r estDF$se[5]`
+Point est in T = 6: `r estDF_4$Estimate[5]`
+Stand. error in T = 6: `r estDF_4$se[5]`
 
 If we do not omit a level (such as period 4) then we do not have a comparison level and interpreting our treatment effect becomes non-sensible.  
 
 ## c) 
 
+$$E[y(1) - y(0)]$$
+
 ```{r}
-mean(estDF$Estimate)
+
+y_0 <- estDF_4 %>%
+  filter(time_id <= 4)
+
+y_1 <- estDF_4 %>%
+  filter(time_id > 4)
+
+
+mean(y_1$Estimate) - mean(y_0$Estimate)
 
 ```
-The treatment effect in part A is larger than that in part B. Part A uses a different reference level. 
+They're the same. 
+
+
+## d) 
+
+```{r}
+# regression 
+myData$time_id <- relevel(myData$time_id, ref = "3")
+
+reg_5 <- feols(y_instant ~  treated_group*time_id | time_id + ids, data = myData, vcov = "hetero")
+
+etable(reg_5)
+
+# plot 
+estDF_5<- as.data.frame(reg_5$coeftable) %>%
+  mutate(time_id = c(1,2, 4,  5, 6, 7, 8, 9, 10)) %>%
+  rename(se = `Std. Error`)
+
+ggplot(estDF_5, aes(x = time_id, y = Estimate)) + 
+  geom_point() +
+  geom_errorbar(aes(ymin=Estimate-se, ymax=Estimate+se), width=.2,
+                 position=position_dodge(.9)) +
+  geom_vline(xintercept = 3) +
+  theme_bw()
+
+
+```
+why is this not changing 
+
+ANDIE YOU"RE HERE 
+
+## e) 
+
+```{r}
+# reg_6 <- feols(data = myData, fml = y_dynamic ~ post*treated_group, vcov = "hetero")
+# reg_7 <- feols(data = myData, fml = y_dynamic ~treated_group + i(post, treated_group) | time_id, vcov = "hetero")
+# reg_8 <- feols(data = myData, fml = y_dynamic ~  i(post, treated_group) | ids + time_id, vcov = "hetero")
+# 
+# etable(reg_6, reg_7, reg_8)
+```
 
