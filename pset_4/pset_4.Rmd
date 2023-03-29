@@ -13,6 +13,7 @@ library(vroom)
 library(dplyr)
 library(stargazer)
 library(ggplot2)
+library(stats)
 ```
 
 # Diff-in-diff
@@ -20,10 +21,10 @@ library(ggplot2)
 10 time periods. 1000 ids. treatment turns on in period 5 (post). standard treatment and control. Be specific about what SE are used. 
 
 ```{r}
-myData <- vroom("https://raw.githubusercontent.com/paulgp/applied-methods-phd/main/homework/dind_data.csv")
+myData_og <- vroom("https://raw.githubusercontent.com/paulgp/applied-methods-phd/main/homework/dind_data.csv")
 
 
-myData <- myData %>%
+myData_og <- myData_og %>%
   mutate(time_id = as.factor(time_id)) %>%
   mutate(ids = as.factor(ids)) %>%
   mutate(treated_group = treated_group*1) %>%
@@ -35,8 +36,8 @@ myData <- myData %>%
 ## a) Estimate three regressions. 
 
 ```{r}
-
-myData$time_id <- relevel(myData$time_id, ref = "1")
+myData <- myData_og %>%
+  mutate(time_id = relevel(time_id, ref = "1"))
 
 
 reg_1 <- feols(y_instant ~ treated_group * post, data = myData, vcov = "hetero")
@@ -61,7 +62,8 @@ myPlot <- myData %>%
   
 ggplot(myPlot, aes(x = time_id, y = y_inst, color = treated_group)) + 
   geom_point() +
-  theme_bw()
+  theme_bw() +
+  ggtitle("Instant")
 ```
 
 There is a steady decrease in Y across treatment and control. However, in the time period of treatment the treatment group didn't decrease. The decreasing trend continues after treatment but the gap is larger. 
@@ -72,7 +74,8 @@ There is a steady decrease in Y across treatment and control. However, in the ti
 ```{r}
 
 # regression 
-myData$time_id <- relevel(myData$time_id, ref = "4")
+myData <- myData_og %>%
+  mutate(time_id = relevel(time_id, ref = "4"))
 
 reg_4 <- feols(y_instant ~  treated_group*time_id | time_id + ids, data = myData, vcov = "hetero")
 
@@ -88,7 +91,8 @@ ggplot(estDF_4, aes(x = time_id, y = Estimate)) +
   geom_errorbar(aes(ymin=Estimate-se, ymax=Estimate+se), width=.2,
                  position=position_dodge(.9)) +
   geom_vline(xintercept = 4) +
-  theme_bw()
+  theme_bw() +
+  ggtitle("Instant, ref is 4")
 
 
 ```
@@ -120,7 +124,8 @@ They're the same.
 
 ```{r}
 # regression 
-myData$time_id <- relevel(myData$time_id, ref = "3")
+myData <- myData_og %>%
+  mutate(time_id = relevel(time_id, ref = "3"))
 
 reg_5 <- feols(y_instant ~  treated_group*time_id | time_id + ids, data = myData, vcov = "hetero")
 
@@ -136,21 +141,165 @@ ggplot(estDF_5, aes(x = time_id, y = Estimate)) +
   geom_errorbar(aes(ymin=Estimate-se, ymax=Estimate+se), width=.2,
                  position=position_dodge(.9)) +
   geom_vline(xintercept = 3) +
-  theme_bw()
+  theme_bw() +
+  ggtitle("Instant, ref is 3")
 
 
 ```
-why is this not changing 
 
-ANDIE YOU"RE HERE 
 
 ## e) 
 
 ```{r}
-# reg_6 <- feols(data = myData, fml = y_dynamic ~ post*treated_group, vcov = "hetero")
-# reg_7 <- feols(data = myData, fml = y_dynamic ~treated_group + i(post, treated_group) | time_id, vcov = "hetero")
-# reg_8 <- feols(data = myData, fml = y_dynamic ~  i(post, treated_group) | ids + time_id, vcov = "hetero")
-# 
-# etable(reg_6, reg_7, reg_8)
+
+myData <- myData_og %>%
+  mutate(time_id = relevel(time_id, ref = "1"))
+
+reg_1.e<- feols(y_dynamic ~ treated_group * post, data = myData, vcov = "hetero")
+reg_2.e<- feols(y_dynamic ~  treated_group + treated_group*post | time_id, data = myData, vcov = "hetero")
+reg_3.e<- feols(y_dynamic ~  treated_group*post | time_id + ids, data = myData, vcov = "hetero")
+
+etable(reg_1.e, reg_2.e, reg_3.e)
+```
+The treatment effect has increased.
+
+```{r}
+myPlot <- myData %>%
+  group_by(time_id, treated_group) %>%
+  mutate(y_dyn = mean(y_dynamic)) %>%
+  select(time_id, treated_group, y_dyn) %>%
+  distinct() %>%
+  mutate(time_id = as.numeric(time_id)) %>%
+  mutate(treated_group = as.factor(treated_group))
+  
+ggplot(myPlot, aes(x = time_id, y = y_dyn, color = treated_group)) + 
+  geom_point() +
+  theme_bw() +
+  ggtitle("Dynamic ")
+```
+We see that the decreasing trend is now halted for 3 time periods for the treated group (6, 7, 8).
+
+```{r}
+
+# regression 
+myData <- myData_og %>%
+  mutate(time_id = relevel(time_id, ref = "4"))
+
+reg_4.e <- feols(y_dynamic ~  treated_group*time_id | time_id + ids, data = myData, vcov = "hetero")
+
+etable(reg_4.e)
+
+# plot 
+estDF_4.e<- as.data.frame(reg_4.e$coeftable) %>%
+  mutate(time_id = c(1,2, 3, 5, 6, 7, 8, 9, 10)) %>%
+  rename(se = `Std. Error`)
+
+ggplot(estDF_4.e, aes(x = time_id, y = Estimate)) + 
+  geom_point() +
+  geom_errorbar(aes(ymin=Estimate-se, ymax=Estimate+se), width=.2,
+                 position=position_dodge(.9)) +
+  geom_vline(xintercept = 4) +
+  theme_bw() +
+  ggtitle("Dynamic, ref is 4 ")
+
+
+```
+Rather than there being one time period where the trend is forgone, there are multiple. Therefore the treatment effect for each time period increase from time period 5 through 8, and then the treatment affect stabilizes for the remaining time periods. 
+
+## f) 
+
+```{r}
+myData <- myData_og %>%
+  mutate(time_id = relevel(time_id, ref = "1"))
+
+myPlot <- myData %>%
+  group_by(time_id, treated_group) %>%
+  mutate(y_dyn = mean(y_dynamic2)) %>%
+  select(time_id, treated_group, y_dyn) %>%
+  distinct() %>%
+  mutate(time_id = as.numeric(time_id)) %>%
+  mutate(treated_group = as.factor(treated_group))
+  
+ggplot(myPlot, aes(x = time_id, y = y_dyn, color = treated_group)) + 
+  geom_point() +
+  theme_bw() +
+  ggtitle("Dynamic 2")
+```
+The pre-trend is not perfectly parallel. However, it this were empirical data I'd argue that it fits well enough to do a diff-in-diff. 
+```{r}
+# regression 
+myData <- myData_og %>%
+  mutate(time_id = relevel(time_id, ref = "4"))
+
+reg_4.f <- feols(y_dynamic2 ~  treated_group*time_id | time_id + ids, data = myData, vcov = "hetero")
+
+etable(reg_4.f)
+
+# plot 
+estDF_4.f<- as.data.frame(reg_4.f$coeftable) %>%
+  mutate(time_id = c(1,2, 3,  5, 6, 7, 8, 9, 10)) %>%
+  rename(se = `Std. Error`)
+
+ggplot(estDF_4.f, aes(x = time_id, y = Estimate)) + 
+  geom_point() +
+  geom_errorbar(aes(ymin=Estimate-se, ymax=Estimate+se), width=.2,
+                 position=position_dodge(.9)) +
+  geom_vline(xintercept = 4) +
+  theme_bw() +
+  ggtitle("Dynamic 2, ref is 4")
+
+
 ```
 
+```{r}
+# regression 
+myData <- myData_og %>%
+  mutate(time_id = relevel(time_id, ref = "3"))
+
+reg_5.f <- feols(y_dynamic2 ~  treated_group*time_id | time_id + ids, data = myData, vcov = "hetero")
+
+etable(reg_5.f)
+
+# plot 
+estDF_5.f<- as.data.frame(reg_5.f$coeftable) %>%
+  mutate(time_id = c(1,2, 4,  5, 6, 7, 8, 9, 10)) %>%
+  rename(se = `Std. Error`)
+
+ggplot(estDF_5.f, aes(x = time_id, y = Estimate)) + 
+  geom_point() +
+  geom_errorbar(aes(ymin=Estimate-se, ymax=Estimate+se), width=.2,
+                 position=position_dodge(.9)) +
+  geom_vline(xintercept = 3) +
+  theme_bw() +
+  ggtitle("Dynamic 2, ref is 3")
+
+
+```
+
+## g) 
+In part A I already used heteroskedastically robust standard errors. I now repeat part A with robust SE that are clustered by id. 
+
+```{r}
+myData <- myData_og %>%
+  mutate(time_id = relevel(time_id, ref = "1"))
+
+reg_3.g.hom <- feols(y_instant ~  treated_group*post | time_id + ids, data = myData, vcov = "iid")
+reg_3.g.rob <- feols(y_instant ~  treated_group*post | time_id + ids, data = myData, vcov = "hetero")
+reg_3.g.clust <- feols(y_instant ~  treated_group*post | time_id + ids, data = myData, cluster = myData$ids)
+
+
+etable(reg_3.g.hom, reg_3.g.rob, reg_3.g.clust)
+```
+The robust standard error is smaller than the clustered standard error, but larger than than the SE when assuming errors are IID. 
+
+```{r}
+par(mfrow = c(2, 5)) 
+test <- myData_og %>%
+  mutate(residuals = resid(reg_3.g.rob)) %>%
+  group_by(time_id) %>%
+  summarise(cor=list(acf(residuals, lag.max = 1000)))
+
+
+```
+
+There doesn't appear to be any auto correlation to be concerned about. 
