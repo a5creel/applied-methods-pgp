@@ -1,0 +1,45 @@
+---
+title: "Problem Set Five"
+author: "Andie Creel"
+date: "2023-04-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(message = FALSE)
+
+
+library(vroom)
+library(stargazer)
+```
+
+# Question One (Comlier Share)
+
+## a)
+
+$$y_i = \alpha +\beta x_i + \epsilon_i$$
+where $y_i$ is some variable for labor supply and $x_i$ is $more_kids$. 
+
+Covariates in Angrist and Evans: age of mom, age of mom at first birth, race, ethnicity. 
+
+My covariates: race and ethnicity
+
+First sample: all women, married women, 
+
+
+```{r, results='asis'}
+
+#first subsample is only women with more than 2 kids 
+myData_og <- vroom("ang_ev_1980.csv")
+
+one <- lm(data = myData_og, formula = mom_worked ~ morekids +  blackm + hispm + whitem)
+two <- lm(data = myData_og, formula = mom_weeks_worked ~ morekids+  blackm + hispm + whitem)
+
+stargazer(one, two, type = "html")
+
+```
+
+
+
+## b) 

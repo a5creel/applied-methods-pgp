@@ -293,8 +293,11 @@ etable(reg_3.g.hom, reg_3.g.rob, reg_3.g.clust)
 The robust standard error is smaller than the clustered standard error, but larger than than the SE when assuming errors are IID. 
 
 ```{r}
+# plotting all the graphs in a grid
 par(mfrow = c(2, 5)) 
-test <- myData_og %>%
+
+#Auto corrleation graphs
+auto_corr <- myData_og %>%
   mutate(residuals = resid(reg_3.g.rob)) %>%
   group_by(time_id) %>%
   summarise(cor=list(acf(residuals, lag.max = 1000)))
@@ -302,4 +305,64 @@ test <- myData_og %>%
 
 ```
 
-There doesn't appear to be any auto correlation to be concerned about. 
+There doesn't appear to be any auto correlation within groups to be concerned about. 
+
+# Time Series 
+
+```{r}
+rm(list = ls())
+
+# reading in data 
+myData_og <- vroom("https://raw.githubusercontent.com/paulgp/applied-methods-phd/main/homework/Homework6/data/hrs_eventdata.csv")
+
+# hhidpn: individual 
+# wave: wave of survey / time index of study
+# wave_hosp: time of event
+# oop spend: out of pocket spending 
+
+```
+
+
+## a) 
+wave_hosp corresponds with $E_i$ in our study. 
+
+```{r}
+# constructing E
+myData <- myData_og %>%
+  mutate(D = if_else(wave_hosp <= wave, 1, 0))
+
+# share treated in each time period 
+myData %>% 
+  group_by(wave) %>%
+  mutate(share_treated = sum(D)/length(D)) %>%
+  select(share_treated) %>%
+  distinct()
+
+
+```
+
+## b) 
+
+```{r}
+myReg_1 <- feols(oop_spend ~ D | wave + hhidpn, data = myData)
+
+etable(myReg_1)
+
+```
+
+
+Interpretation of inference given panel setting: 
+
+## c) 
+```{r}
+# Set level as last time period
+myData <- myData_og %>%
+  mutate(wave_hosp = as.factor(wave_hosp)) %>%
+  mutate(wave_hosp = relevel(wave_hosp, ref = "11"))
+
+# YOU ARE HERE 
+
+```
+
+
+
