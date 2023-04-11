@@ -12,20 +12,26 @@ knitr::opts_chunk$set(message = FALSE)
 
 library(vroom)
 library(stargazer)
+library(ivreg)
+# library(ivpack)
+library(dplyr)
 ```
 
 # Question One (Comlier Share)
 
-## a)
-
-$$y_i = \alpha +\beta x_i + \epsilon_i$$
-where $y_i$ is some variable for labor supply and $x_i$ is $more_kids$. 
+**Notes:**
 
 Covariates in Angrist and Evans: age of mom, age of mom at first birth, race, ethnicity. 
 
 My covariates: race and ethnicity
 
-First sample: all women, married women, 
+Samples: all women, married women, husbands of married women
+
+## a) OLS regression 
+
+$$y_i = \alpha +\beta x_i + \epsilon_i$$
+where $y_i$ is some variable for labor supply and $x_i$ is $more_kids$. 
+
 
 
 ```{r, results='asis'}
@@ -34,12 +40,250 @@ First sample: all women, married women,
 myData_og <- vroom("ang_ev_1980.csv")
 
 one <- lm(data = myData_og, formula = mom_worked ~ morekids +  blackm + hispm + whitem)
-two <- lm(data = myData_og, formula = mom_weeks_worked ~ morekids+  blackm + hispm + whitem)
+two <- lm(data = myData_og, formula = mom_weeks_worked ~ morekids +  blackm + hispm + whitem)
 
-stargazer(one, two, type = "html")
+stargazer(one, two, type = "html", title = "OLS regression: effect of more than 2 kids")
 
 ```
 
 
+## b) IV regression: instrument = same sex
+
+```{r, results='asis'}
+one.iv <- ivreg(data = myData_og, formula = mom_worked ~ morekids +  blackm + hispm + whitem | samesex + blackm + hispm + whitem)
+two.iv <- ivreg(data = myData_og, formula = mom_weeks_worked ~ morekids +  blackm + hispm + whitem| samesex + blackm + hispm + whitem)
+
+stargazer(one.iv, two.iv, type = "html", title = "IV regression: effect of more than 2 kids, instrumented with samesex")
+
+```
+
+This doesn't follow the paper's results very closely. 
+
+#c) IV regression: instrument = twins of the same sex
+
+```{r, results='asis'}
+one.iv.2 <- ivreg(data = myData_og, formula = mom_worked ~ morekids +  blackm + hispm + whitem | twins_2 + blackm + hispm + whitem)
+two.iv.2 <- ivreg(data = myData_og, formula = mom_weeks_worked ~ morekids +  blackm + hispm + whitem| twins_2 + blackm + hispm + whitem)
+
+stargazer(one.iv.2, two.iv.2, type = "html", title = "OLS regression: effect of more than 2 kids")
+
+```
+This looks right. 
+
+
+## d) Complier share for 2 instruments 
+
+Complier share: 
+$$E(D_i| Z_i = 1) - E(D_i| Z_i = 0)$$
+
+**Same Sex:**
+
+```{r}
+mean(myData_og$morekids[myData_og$samesex == TRUE]) - mean(myData_og$morekids[myData_og$samesex == FALSE])
+```
+
+
+**Twins:**
+```{r}
+mean(myData_og$morekids[myData_og$twins_2 == TRUE]) - mean(myData_og$morekids[myData_og$twins_2 == FALSE])
+```
+
+Twins a stronger instrument. 
+
+## e) Complier Share for different subsets
+
+**Education greater than high school (moreths)**
+```{r}
+mean(myData_og$morekids[myData_og$twins_2 == TRUE & myData_og$moreths == TRUE]) - mean(myData_og$morekids[myData_og$twins_2 == FALSE & myData_og$moreths == TRUE])
+```
+
+**Black Mom**
+```{r}
+mean(myData_og$morekids[myData_og$twins_2 == TRUE & myData_og$blackm == TRUE]) - mean(myData_og$morekids[myData_og$twins_2 == FALSE & myData_og$blackm == TRUE])
+```
+
+
+**Hispanic Mom**
+```{r}
+mean(myData_og$morekids[myData_og$twins_2 == TRUE & myData_og$hispm == TRUE]) - mean(myData_og$morekids[myData_og$twins_2 == FALSE & myData_og$hispm == TRUE])
+```
+
+**White Mom**
+```{r}
+mean(myData_og$morekids[myData_og$twins_2 == TRUE & myData_og$whitem == TRUE]) - mean(myData_og$morekids[myData_og$twins_2 == FALSE & myData_og$whitem == TRUE])
+```
+
+
+## f) 
+```{r}
+# anderson.rubin.ci(one.iv, conflevel = .95)
+```
+
+
+
+# Question Two (Kitagawa Test)
+I have only done this for twins as the IV. 
+
+
+## a) 
+
+```{r}
+# P (treated by instrument)
+df_P <- myData_og %>%
+  filter(samesex == TRUE)
+
+n1 <- nrow(df_P) %>% as.numeric()
+
+
+sum_1_1 <- df_P %>%
+  filter(mom_worked == T & morekids == T) %>%
+  nrow()
+
+sum_1_0 <- df_P %>%
+  filter(mom_worked == T & morekids == F) %>%
+  nrow()
+
+sum_0_1 <- df_P %>%
+  filter(mom_worked == F & morekids == T) %>%
+  nrow()
+
+sum_0_0 <- df_P %>%
+  filter(mom_worked == F & morekids == F) %>%
+  nrow()
+
+P_y1_d1 <- n1^{-1} * sum_1_1
+P_y1_d0 <- n1^{-1} * sum_1_0
+P_y0_d1 <- n1^{-1} * sum_0_1
+P_y0_d0 <- n1^{-1} * sum_0_0
+
+#Reporting 
+P_y1_d1 
+P_y1_d0 
+P_y0_d1 
+P_y0_d0 
+
+
+# Q (not treated by instrument)
+df_Q <- myData_og %>%
+  filter(samesex == F)
+
+n0 <- nrow(df_Q) %>% as.numeric()
+Q_y1_d1 <- n1^{-1} * sum(df_Q$mom_worked == TRUE & df_Q$morekids == TRUE)
+Q_y1_d0 <- n1^{-1} * sum(df_Q$mom_worked == TRUE & df_Q$morekids == FALSE)
+Q_y0_d1 <- n1^{-1} * sum(df_Q$mom_worked == FALSE & df_Q$morekids == TRUE)
+Q_y0_d0 <- n1^{-1} * sum(df_Q$mom_worked == FALSE & df_Q$morekids == FALSE)
+
+#Reporting 
+Q_y1_d1 
+Q_y1_d0 
+Q_y0_d1 
+Q_y0_d0 
+
+
+
+
+```
+Did this two different 
 
 ## b) 
+
+
+```{r}
+n <- n0 + n1
+E <-  0.1
+lambda <- n1/n0
+sigma_y0_d0 <- ((1 - lambda)*P_y0_d0*(1 - P_y0_d0) + lambda*Q_y0_d0*(1 - Q_y0_d0))^.5
+sigma_y1_d0 <- ((1 - lambda)*P_y1_d0*(1 - P_y1_d0) + lambda*Q_y1_d0*(1 - Q_y1_d0))^.5
+sigma_y0_d1 <- ((1 - lambda)*P_y0_d1*(1 - P_y0_d1) + lambda*Q_y0_d1*(1 - Q_y0_d1))^.5
+sigma_y1_d1 <- ((1 - lambda)*P_y1_d1*(1 - P_y1_d1) + lambda*Q_y1_d1*(1 - Q_y1_d1))^.5
+sigma_y0_d0 
+sigma_y1_d0 
+sigma_y0_d1 
+sigma_y1_d1 
+
+
+T_stat <- (n0*n1/n)^.5 *max( max((Q_y0_d1 - P_y0_d1)/sigma_y0_d1, (Q_y1_d1 - P_y1_d1)/ sigma_y1_d1), 
+                             max((Q_y0_d0 - P_y0_d0)/sigma_y0_d0, (Q_y1_d0 - P_y1_d0)/ sigma_y1_d0))
+
+T_stat
+
+```
+
+
+## c) subsample 
+
+```{r}
+myData <- myData_og %>%
+  mutate(H= lambda*((1 - mom_worked)*(1 - morekids)*P_y0_d0 +(mom_worked)*(1 - morekids)*P_y1_d0 +(1 - mom_worked)*(morekids)*P_y0_d1 +(mom_worked)*(morekids)*P_y1_d1) +
+           (1 - lambda)*((1 - mom_worked)*(1 - morekids)*Q_y0_d0 +(mom_worked)*(1 - morekids)*Q_y1_d0 +(1 - mom_worked)*(morekids)*Q_y0_d1 +(mom_worked)*(morekids)*Q_y1_d1))
+
+new_df <- myData[sample(1:nrow(myData), prob = myData$H, replace = T),]
+
+```
+
+
+```{r}
+# P (treated by instrument)
+df_P <- new_df %>%
+  filter(samesex == TRUE)
+
+n1 <- nrow(df_P) %>% as.numeric()
+
+
+sum_1_1 <- df_P %>%
+  filter(mom_worked == T & morekids == T) %>%
+  nrow()
+
+sum_1_0 <- df_P %>%
+  filter(mom_worked == T & morekids == F) %>%
+  nrow()
+
+sum_0_1 <- df_P %>%
+  filter(mom_worked == F & morekids == T) %>%
+  nrow()
+
+sum_0_0 <- df_P %>%
+  filter(mom_worked == F & morekids == F) %>%
+  nrow()
+
+P_y1_d1 <- n1^{-1} * sum_1_1
+P_y1_d0 <- n1^{-1} * sum_1_0
+P_y0_d1 <- n1^{-1} * sum_0_1
+P_y0_d0 <- n1^{-1} * sum_0_0
+             
+
+
+# Q (not treated by instrument)
+df_Q <- new_df %>%
+  filter(samesex == F)
+
+n0 <- nrow(df_Q) %>% as.numeric()
+Q_y1_d1 <- n1^{-1} * sum(df_Q$mom_worked == TRUE & df_Q$morekids == TRUE)
+Q_y1_d0 <- n1^{-1} * sum(df_Q$mom_worked == TRUE & df_Q$morekids == FALSE)
+Q_y0_d1 <- n1^{-1} * sum(df_Q$mom_worked == FALSE & df_Q$morekids == TRUE)
+Q_y0_d0 <- n1^{-1} * sum(df_Q$mom_worked == FALSE & df_Q$morekids == FALSE)
+
+```
+
+
+```{r}
+n <- n0 + n1
+E <-  0.1
+lambda <- n1/n0
+sigma_y0_d0 <- ((1 - lambda)*P_y0_d0*(1 - P_y0_d0) + lambda*Q_y0_d0*(1 - Q_y0_d0))^.5
+sigma_y1_d0 <- ((1 - lambda)*P_y1_d0*(1 - P_y1_d0) + lambda*Q_y1_d0*(1 - Q_y1_d0))^.5
+sigma_y0_d1 <- ((1 - lambda)*P_y0_d1*(1 - P_y0_d1) + lambda*Q_y0_d1*(1 - Q_y0_d1))^.5
+sigma_y1_d1 <- ((1 - lambda)*P_y1_d1*(1 - P_y1_d1) + lambda*Q_y1_d1*(1 - Q_y1_d1))^.5
+
+
+
+T_stat <- (n0*n1/n)^.5 *max( max((Q_y0_d1 - P_y0_d1)/sigma_y0_d1, (Q_y1_d1 - P_y1_d1)/ sigma_y1_d1), 
+                             max((Q_y0_d0 - P_y0_d0)/sigma_y0_d0, (Q_y1_d0 - P_y1_d0)/ sigma_y1_d0))
+
+T_stat
+
+```
+
+
+## d) 
+didn't complete 
