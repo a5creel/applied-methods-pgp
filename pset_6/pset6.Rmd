@@ -1,0 +1,150 @@
+---
+title: "Problem Set 6"
+author: "Andie Creel"
+date: "2023-04-23"
+output: pdf_document
+---
+
+```{r setup, include=FALSE, message=F}
+knitr::opts_chunk$set(echo = T)
+library(rdrobust) 
+library(dplyr)
+library(RDHonest)
+library(haven)
+```
+
+# Comparing Estimators 
+
+Code is supplemented by READ_ME: https://github.com/reifjulian/driving
+
+## a) 
+
+```{r}
+# Load mortality data, convert deaths to death rates per 100,000
+my_data <- read_dta("https://julianreif.com/driving/data/mortality/derived/all.dta")
+my_data <- my_data %>% mutate(cod_any = 100000*cod_any/(pop/12))
+
+# Create indicator for first month of driving eligibility
+my_data <- my_data %>% mutate(firstmonth = agemo_mda==0)
+
+# Estimate RD using rdrobust add-on package
+Y <- my_data$cod_any
+X <- my_data$agemo_mda
+C <- as.integer(my_data$firstmonth)
+summary(rdrobust(Y, X, covs = C))
+```
+
+## b) Uniform Kernel 
+```{r}
+summary(rdrobust(Y, X, covs = C, kernel = "uniform"))
+
+```
+
+The deaths at the minimum legal driving age increased with the uniform distribution when compared to the triangular. 
+
+## c) Quadratic Function 
+
+```{r}
+summary(rdrobust(Y, X, covs = C, p = 3))
+
+```
+Increasing the order of the local quadratic function from 2 to 3 decreases the effect at the cutoff. 
+
+
+## d) Bandwidth 
+
+```{r}
+summary(rdrobust(Y, X, covs = C, h = 40))
+
+```
+
+Switching from using mserd to set bandwidth to manually setting it to 40 (which increases the bandwitd from ~10 to 40) increases the estimated effect at the cutoff. 
+
+
+## e) covs 
+
+covs "specifies additional covariates to be used for estimation and inference" (CRAN documentation) 
+
+```{r}
+summary(rdrobust(Y, X))
+```
+
+The estimation at the cuttoff decreases when covariates are not included. 
+
+
+## f) first month dropped 
+
+```{r}
+
+# drop first month 
+my_data_f <- my_data %>% 
+  filter(firstmonth == F)
+
+# Estimate RD using rdrobust add-on package
+Y.f <- my_data_f$cod_any
+X.f <- my_data_f$agemo_mda
+summary(rdrobust(Y.f, X.f))
+```
+The effect decreases when the first month is not included, but is persistent. 
+
+## g) R Honest 
+
+Bandwidth's optimization criteria is MSE 
+
+```{r}
+RDHonest(cod_any ~ agemo_mda, data = my_data_f, kern = "triangular", M = 0.1, opt.criterion = "MSE")
+
+```
+Bandwidth's optimization criteria is MSE. The estimate at the cutoff is slightly lower and the CI is less precise. 
+
+## h) smoothness parameter 
+
+Smoothness is related to bandwidth.
+
+```{r}
+RDHonest(cod_any ~ agemo_mda, data = my_data_f, kern = "triangular", M = .02)
+
+```
+When the smoothness constant is M = 0.02, the CI for RHonest and rdrobust are more similar. Bandwidths are set to be ~13 This seems realistic to me given that it's close to the bandwiths used for the results published in AER. The point estimates are differnt, however. 
+
+Note that my dataset still has the first month dropped. 
+
+## i) Bandwidtch = 40 
+
+
+```{r}
+RDHonest(cod_any ~ agemo_mda, data = my_data_f, kern = "triangular", h = 40)
+
+```
+The effect increases significantly when bandwitdth is 40. 
+
+
+## j) linear regression 
+
+**i**
+```{r}
+#.f has the first month dropped 
+summary(rdrobust(Y.f, X.f), kern = "uniform")
+
+```
+**ii**
+
+```{r}
+# Only looking at data the 9.293 months around the cutoff (bandwidth, h)
+myData_j <- my_data_f %>%
+  filter(abs(agemo_mda) <= 4.6) %>%
+  mutate(agemo_mda_greater_0 = (agemo_mda>0))
+
+# Regression 
+summary(lm(data = myData_j, 
+           formula = cod_any ~  agemo_mda*agemo_mda_greater_0))
+```
+Gamma two is 5.4243, which is very close to the effect near the cut off estimated using regression discontinuity ($\tau$ = 5.665). Gamma two is an indicator for if and observation is treated, and the only observations are right before and right after the cutoff. It makes sense that an indicator for the cutoff would get similar results to an RD. 
+
+## k) Explain, in words, how you could get the rdrobust estimate that uses the triangular kernel using OLS (hint: it would involve weights)
+
+You would need to weight the observations near the cutoff more than the those near the edges. A simple way to do this would be to replicate observations near the cut off (on either side) and not replicate the observations that are further away from the cutoff that are still included. You could then follow the OLS procedure completed in j.ii with the data set that has replicates. 
+
+
+
+
